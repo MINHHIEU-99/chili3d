@@ -1,0 +1,23 @@
+{
+    "name": "robot-sim",
+    "version": "1.0.0",
+    "description": "Robot arm simulator plugin for Chili3D",
+    "main": "extension.js",
+    "type": "module",
+    "scripts": {
+        "build": "rspack build -c rspack.config.mjs",
+        "deploy": "npm run build && cp dist/extension.js dist/extension.css ../../public/plugins/robot-sim/dist/",
+        "preview": "npm run build && echo 'Debug URL: http://localhost:8080?plugin=http://localhost:8686' && npx servitsy -p 8686 --cors"
+    },
+    "devDependencies": {
+        "@chili3d/core": "*",
+        "@chili3d/element": "*",
+        "@rspack/cli": "^1.3.12",
+        "@types/three": "^0.181.0",
+        "typescript": "^5.0.0"
+    },
+    "dependencies": {
+        "three": "^0.181.0",
+        "gsap": "^3.12.7"
+    }
+}

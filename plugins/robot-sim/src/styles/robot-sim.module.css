@@ -1,0 +1,144 @@
+.panelContainer {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 8px;
+    overflow-y: auto;
+    font-size: 13px;
+    color: var(--foreground-color);
+}
+
+.section {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 8px;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    background: var(--panel-background-color);
+}
+
+.sectionHeader {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-weight: 600;
+    font-size: 13px;
+    padding-bottom: 4px;
+    border-bottom: 1px solid var(--border-color);
+    margin-bottom: 2px;
+}
+
+.sliderRow {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.sliderLabel {
+    min-width: 64px;
+    font-size: 12px;
+    color: var(--foreground-muted-color);
+}
+
+.slider {
+    flex: 1;
+    height: 4px;
+    accent-color: #4a9eff;
+    cursor: pointer;
+}
+
+.sliderValue {
+    min-width: 44px;
+    text-align: right;
+    font-size: 11px;
+    font-family: "Consolas", "Monaco", monospace;
+    color: var(--foreground-muted-color);
+}
+
+.buttonRow {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.actionButton {
+    padding: 4px 12px;
+    font-size: 12px;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    background-color: var(--panel-background-color);
+    color: var(--foreground-color);
+    cursor: pointer;
+    flex: 1;
+    min-width: 0;
+}
+
+.actionButton:hover {
+    background-color: var(--hover-background-color);
+}
+
+.playButton {
+    background-color: #28a745;
+    color: white;
+    border-color: #28a745;
+}
+
+.playButton:hover {
+    background-color: #218838;
+}
+
+.stopButton {
+    background-color: #dc3545;
+    color: white;
+    border-color: #dc3545;
+}
+
+.stopButton:hover {
+    background-color: #c82333;
+}
+
+.checkboxRow {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+}
+
+.statusRow {
+    display: flex;
+    gap: 16px;
+    font-size: 12px;
+    color: var(--foreground-muted-color);
+}
+
+.statusItem {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.hiddenInput {
+    display: none;
+}
+
+.textInput {
+    flex: 1;
+    padding: 3px 6px;
+    font-size: 12px;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    background-color: var(--panel-background-color);
+    color: var(--foreground-color);
+    font-family: "Consolas", "Monaco", monospace;
+}
+
+.wsStatus {
+    font-size: 11px;
+    font-weight: 500;
+    color: #dc3545;
+}
+
+.wsConnected {
+    color: #28a745;
+}

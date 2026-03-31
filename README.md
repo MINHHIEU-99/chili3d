@@ -84,7 +84,7 @@ For Chinese users, you can also browse the [media](https://space.bilibili.com/53
 
 ### Prerequisites
 
-- Node.js
+- Node.js >= 24.14.1
 - npm
 
 ### Installation

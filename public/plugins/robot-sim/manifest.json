@@ -1,0 +1,13 @@
+{
+    "name": "Robot Simulator",
+    "version": "1.0.0",
+    "description": "A robot arm simulator plugin for Chili3D with GLB model import, joint kinematics control, and action sequence playback",
+    "main": "dist/extension.js",
+    "css": "dist/extension.css",
+    "author": {
+        "name": "Chili3D Team"
+    },
+    "engines": {
+        "chili3d": ">=0.6"
+    }
+}
