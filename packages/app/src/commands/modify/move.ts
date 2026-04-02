@@ -2,44 +2,79 @@
 // See LICENSE file in the project root for full license information.
 
 import {
+    AsyncController,
     command,
-    Dimensions,
     type IStep,
+    type ITransformGizmo,
     Matrix4,
-    type PointSnapData,
-    PointStep,
-    type XYZ,
+    PubSub,
+    Transaction,
+    VisualNode,
 } from "@chili3d/core";
-import { TransformedCommand } from "./transformedCommand";
+import { MultistepCommand } from "../multistepCommand";
 
 @command({
     key: "modify.move",
     icon: "icon-move",
 })
-export class Move extends TransformedCommand {
+export class Move extends MultistepCommand {
+    private models?: VisualNode[];
+    private gizmo?: ITransformGizmo;
+
     getSteps(): IStep[] {
-        return [
-            new PointStep("prompt.pickFistPoint", undefined, true),
-            new PointStep("prompt.pickNextPoint", this.getSecondPointData, true),
-        ];
+        return [];
     }
 
-    private readonly getSecondPointData = (): PointSnapData => {
-        return {
-            refPoint: () => this.stepDatas[0].point!,
-            dimension: Dimensions.D1D2D3,
-            preview: this.movePreview,
-        };
-    };
+    protected override async canExcute(): Promise<boolean> {
+        this.models = this.document.selection.getSelectedNodes().filter((x) => x instanceof VisualNode);
+        if (this.models.length > 0) return true;
 
-    private readonly movePreview = (point: XYZ | undefined) => {
-        const p1 = this.meshPoint(this.stepDatas[0].point!);
-        if (!point) return [p1];
-        return [p1, this.transformPreview(point), this.getTempLineData(this.stepDatas[0].point!, point)];
-    };
+        this.controller = new AsyncController();
+        this.models = await this.document.selection.pickNode("prompt.select.models", this.controller, true);
 
-    protected override transfrom(point: XYZ): Matrix4 {
-        const { x, y, z } = point.sub(this.stepDatas[0].point!);
-        return Matrix4.fromTranslation(x, y, z);
+        if (this.models.length > 0) return true;
+        if (this.controller.result?.status === "success") {
+            PubSub.default.pub("showToast", "toast.select.noSelected");
+        }
+        return false;
+    }
+
+    protected override async executeSteps(): Promise<boolean> {
+        const view = this.application.activeView;
+        if (!view || !this.models || this.models.length === 0) return false;
+
+        this.gizmo = view.createTransformGizmo?.(this.models);
+        if (!this.gizmo) {
+            PubSub.default.pub("showToast", "toast.select.noSelected");
+            return false;
+        }
+
+        try {
+            PubSub.default.pub("statusBarTip", "prompt.pickNextPoint");
+            await this.gizmo.waitForResult();
+            return true;
+        } catch {
+            return false;
+        }
+    }
+
+    protected executeMainTask(): void {
+        if (!this.gizmo || !this.models) return;
+
+        const transform = this.gizmo.getTransform();
+        if (transform.equals(Matrix4.identity())) return;
+
+        Transaction.execute(this.document, "excute Move", () => {
+            this.models?.forEach((x) => {
+                x.transform = x.transform.multiply(transform);
+            });
+            this.document.visual.update();
+        });
+    }
+
+    protected override afterExecute() {
+        this.gizmo?.dispose();
+        this.gizmo = undefined;
+        super.afterExecute();
     }
 }

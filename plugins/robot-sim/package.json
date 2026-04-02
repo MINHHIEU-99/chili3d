@@ -6,7 +6,7 @@
     "type": "module",
     "scripts": {
         "build": "rspack build -c rspack.config.mjs",
-        "deploy": "npm run build && cp dist/extension.js dist/extension.css ../../public/plugins/robot-sim/dist/",
+        "deploy": "npm run build && node -e \"const fs=require('fs');['extension.js','extension.css'].forEach(f=>fs.copyFileSync('dist/'+f,'../../public/plugins/robot-sim/dist/'+f))\"",
         "preview": "npm run build && echo 'Debug URL: http://localhost:8080?plugin=http://localhost:8686' && npx servitsy -p 8686 --cors"
     },
     "devDependencies": {

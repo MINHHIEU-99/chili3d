@@ -49,11 +49,34 @@
 }
 
 .sliderValue {
-    min-width: 44px;
+    width: 64px;
     text-align: right;
     font-size: 11px;
     font-family: "Consolas", "Monaco", monospace;
     color: var(--foreground-muted-color);
+    background: var(--background-color, #1e1e1e);
+    border: 1px solid var(--border-color, #444);
+    border-radius: 3px;
+    padding: 1px 4px;
+    outline: none;
+    -moz-appearance: textfield;
+}
+
+.sliderValue::-webkit-inner-spin-button,
+.sliderValue::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+
+.sliderValue:focus {
+    border-color: var(--accent-color, #0078d4);
+}
+
+.sliderUnit {
+    font-size: 11px;
+    font-family: "Consolas", "Monaco", monospace;
+    color: var(--foreground-muted-color);
+    min-width: 16px;
 }
 
 .buttonRow {

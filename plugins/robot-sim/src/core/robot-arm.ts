@@ -4,13 +4,12 @@
 import gsap from "gsap";
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
-import {
-    type AnimationState,
-    GRIPPER_AXIS_MAP,
-    JOINT_AXIS_MAP,
-    type JointConfig,
-    type JSONActionSequence,
-    type JSONKeyFrame,
+import type {
+    AnimationState,
+    JointConfig,
+    JSONActionSequence,
+    JSONKeyFrame,
+    RobotModelConfig,
 } from "./joint-config";
 import { type TrajectoryPoint, TrajectoryVisualizer } from "./trajectory-visualizer";
 
@@ -18,11 +17,12 @@ export class RobotArm {
     private model: THREE.Group | null = null;
     private joints: Map<string, THREE.Object3D> = new Map();
     private jointConfigs: JointConfig[] = [];
-    private jointNames: string[] = Object.keys(JOINT_AXIS_MAP);
+    private jointNames: string[] = [];
     private grippers: Map<string, THREE.Object3D> = new Map();
     private gripperConfigs: JointConfig[] = [];
-    private gripperNames: string[] = Object.keys(GRIPPER_AXIS_MAP);
+    private gripperNames: string[] = [];
     private allComponentsConfigs: JointConfig[] = [];
+    private jointDefaultPositions: Map<string, THREE.Vector3> = new Map();
     private loader: GLTFLoader;
     private animationState: AnimationState = {
         isPlaying: false,
@@ -35,29 +35,101 @@ export class RobotArm {
     private gripperAnimationTimeline: gsap.core.Timeline | null = null;
     private gripperOpenness: number = 0;
     private constantAngularVelocity: number = 360 / 4.8;
+    private constantLinearVelocity: number = 200;
     private trajectoryVisualizer: TrajectoryVisualizer | null = null;
     private trajectoryRecordingInterval: number | null = null;
     private currentTrajectoryFrameId: number = 0;
     private modelContainer: THREE.Group | null = null;
     private directionalLight: THREE.DirectionalLight | null = null;
+    private onSceneChanged: (() => void) | null = null;
 
-    constructor(private scene: THREE.Scene) {
+    constructor(
+        private scene: THREE.Scene,
+        private modelConfig?: RobotModelConfig,
+    ) {
         this.loader = new GLTFLoader();
         this.trajectoryVisualizer = new TrajectoryVisualizer(scene);
+        if (modelConfig) {
+            this.jointNames = modelConfig.joints.map((j) => j.name);
+            this.gripperNames = (modelConfig.grippers ?? []).map((g) => g.name);
+        }
+    }
+
+    setOnSceneChanged(callback: (() => void) | null): void {
+        this.onSceneChanged = callback;
     }
 
     async loadModelFromUrl(url: string): Promise<void> {
         const gltf = await this.loader.loadAsync(url);
+
+        // // Save GLTF structure to a JSON file for inspection
+        // const buildHierarchy = (obj: THREE.Object3D): object => {
+        //     const info: Record<string, unknown> = {
+        //         type: obj.type,
+        //         name: obj.name,
+        //         position: obj.position.toArray(),
+        //         rotation: [obj.rotation.x, obj.rotation.y, obj.rotation.z],
+        //         scale: obj.scale.toArray(),
+        //     };
+        //     if (obj instanceof THREE.Mesh) {
+        //         const geo = obj.geometry;
+        //         info.geometry = {
+        //             vertices: geo.attributes.position?.count ?? 0,
+        //             normals: !!geo.attributes.normal,
+        //             uvs: !!geo.attributes.uv,
+        //             indices: geo.index ? geo.index.count : 0,
+        //             boundingBox: geo.boundingBox
+        //                 ? { min: geo.boundingBox.min.toArray(), max: geo.boundingBox.max.toArray() }
+        //                 : null,
+        //         };
+        //         const mat = obj.material;
+        //         if (Array.isArray(mat)) {
+        //             info.materials = mat.map((m) => ({ type: m.type, name: m.name }));
+        //         } else {
+        //             info.material = { type: mat.type, name: mat.name };
+        //         }
+        //     }
+        //     if (obj.children.length > 0) {
+        //         info.children = obj.children.map(buildHierarchy);
+        //     }
+        //     return info;
+        // };
+        //
+        // const gltfData = {
+        //     asset: gltf.asset,
+        //     animations: gltf.animations.map((a) => ({
+        //         name: a.name,
+        //         duration: a.duration,
+        //         tracks: a.tracks.map((t) => ({ name: t.name, type: t.constructor.name })),
+        //     })),
+        //     cameras: gltf.cameras.map((c) => ({ type: c.type, name: c.name })),
+        //     userData: gltf.userData,
+        //     scene: buildHierarchy(gltf.scene),
+        // };
+        //
+        // const blob = new Blob([JSON.stringify(gltfData, null, 2)], { type: "application/json" });
+        // const a = document.createElement("a");
+        // a.href = URL.createObjectURL(blob);
+        // a.download = "gltf-structure.json";
+        // a.click();
+        // URL.revokeObjectURL(a.href);
+
         this.model = gltf.scene;
 
         // Wrap model in a container to handle Y-up to Z-up conversion.
         // Chili3D uses Z-up (Object3D.DEFAULT_UP = 0,0,1), robot models are Y-up.
         this.modelContainer = new THREE.Group();
-        this.modelContainer.rotation.x = Math.PI / 2;
+        if (this.modelConfig?.transform.yUpToZUp !== false) {
+            this.modelContainer.rotation.x = Math.PI / 2;
+        }
 
-        // Scale up: Chili3D scene works at ~100-250 unit scale, robot model is ~1 unit
-        const scaleFactor = 100;
+        const scaleFactor = this.modelConfig?.transform.scale ?? 100;
         this.modelContainer.scale.setScalar(scaleFactor);
+
+        // Center the model at the origin by offsetting its bounding box center
+        const box = new THREE.Box3().setFromObject(gltf.scene);
+        const center = box.getCenter(new THREE.Vector3());
+        this.model.position.sub(center);
 
         this.modelContainer.add(this.model);
         this.scene.add(this.modelContainer);
@@ -80,63 +152,131 @@ export class RobotArm {
     }
 
     private initializeJoints(): void {
-        if (!this.model) return;
+        if (!this.model || !this.modelConfig) return;
 
         this.joints.clear();
         this.grippers.clear();
         this.jointConfigs = [];
         this.gripperConfigs = [];
+        this.jointDefaultPositions.clear();
 
+        // Setup mesh shadows on the full model
         this.model.traverse((child) => {
             if (child instanceof THREE.Mesh) {
                 child.receiveShadow = false;
                 child.castShadow = true;
             }
+        });
 
-            if (this.jointNames.includes(child.name)) {
+        // Determine the root node for joint traversal
+        let traverseRoot: THREE.Object3D = this.model;
+        if (this.modelConfig.kinematicRoot) {
+            const rootName = this.modelConfig.kinematicRoot;
+            let found = false;
+            this.model.traverse((child) => {
+                if (child.name === rootName) {
+                    traverseRoot = child;
+                    found = true;
+                }
+            });
+            console.log(`[RobotSim] kinematicRoot "${rootName}" ${found ? "found" : "NOT found"} in model`);
+        }
+
+        const scaleFactor = this.modelConfig.transform.scale ?? 1;
+        const jointConfigMap = new Map(this.modelConfig.joints.map((j) => [j.name, j]));
+        const gripperConfigMap = new Map((this.modelConfig.grippers ?? []).map((g) => [g.name, g]));
+
+        console.log("[RobotSim] Looking for joints:", [...jointConfigMap.keys()]);
+
+        traverseRoot.traverse((child) => {
+            const jointDef = jointConfigMap.get(child.name);
+            if (jointDef) {
                 const helper = new THREE.AxesHelper(0.1);
                 helper.visible = false;
                 child.add(helper);
                 this.joints.set(child.name, child);
 
-                const axis = JOINT_AXIS_MAP[child.name];
-                const currentAngle = THREE.MathUtils.radToDeg(
-                    child.rotation[axis.toLowerCase() as keyof THREE.Euler] as number,
-                );
+                let currentValue: number;
+                if (jointDef.type === "linear") {
+                    const axisKey = jointDef.axis.toLowerCase() as "x" | "y" | "z";
+                    currentValue = child.position[axisKey] * scaleFactor;
+                    this.jointDefaultPositions.set(child.name, child.position.clone());
+                } else {
+                    currentValue = THREE.MathUtils.radToDeg(
+                        child.rotation[jointDef.axis.toLowerCase() as keyof THREE.Euler] as number,
+                    );
+                }
 
                 this.jointConfigs.push({
                     name: child.name,
-                    axis,
-                    minAngle: -360,
-                    maxAngle: 360,
-                    defaultAngle: currentAngle,
-                    currentAngle,
+                    axis: jointDef.axis,
+                    type: jointDef.type,
+                    minAngle: jointDef.min,
+                    maxAngle: jointDef.max,
+                    defaultAngle: jointDef.default ?? currentValue,
+                    currentAngle: currentValue,
                 });
             }
 
-            if (this.gripperNames.includes(child.name)) {
+            const gripperDef = gripperConfigMap.get(child.name);
+            if (gripperDef) {
                 const helper = new THREE.AxesHelper(0.1);
                 helper.visible = false;
                 child.add(helper);
                 this.grippers.set(child.name, child);
 
-                const axis = GRIPPER_AXIS_MAP[child.name];
                 const currentAngle = THREE.MathUtils.radToDeg(
-                    child.rotation[axis.toLowerCase() as keyof THREE.Euler] as number,
+                    child.rotation[gripperDef.axis.toLowerCase() as keyof THREE.Euler] as number,
                 );
 
                 this.gripperConfigs.push({
                     name: child.name,
-                    axis,
-                    minAngle: child.name === "gripper1" ? -23 : -30,
-                    maxAngle: child.name === "gripper1" ? 30 : 23,
-                    defaultAngle: currentAngle,
+                    axis: gripperDef.axis,
+                    type: gripperDef.type,
+                    minAngle: gripperDef.min,
+                    maxAngle: gripperDef.max,
+                    defaultAngle: gripperDef.default ?? currentAngle,
                     currentAngle,
                 });
             }
         });
 
+        // Reparent linked visual nodes under their kinematic joints.
+        // This ensures the kinematic chain propagates transforms to visual geometry.
+        // Collect first, then reparent — modifying the scene graph during traverse crashes.
+        const reparentQueue: { joint: THREE.Object3D; visual: THREE.Object3D }[] = [];
+        for (const jointDef of this.modelConfig.joints) {
+            if (jointDef.linkedVisualNodes && jointDef.linkedVisualNodes.length > 0) {
+                const kinematicJoint = this.joints.get(jointDef.name);
+                if (!kinematicJoint) continue;
+                const visualNames = new Set(jointDef.linkedVisualNodes);
+                this.model.traverse((child) => {
+                    if (visualNames.has(child.name)) {
+                        reparentQueue.push({ joint: kinematicJoint, visual: child });
+                    }
+                });
+            }
+        }
+        for (const { joint, visual } of reparentQueue) {
+            joint.attach(visual);
+        }
+
         this.allComponentsConfigs = [...this.jointConfigs, ...this.gripperConfigs];
+        console.log(
+            `[RobotSim] Initialized ${this.jointConfigs.length} joints, ${this.gripperConfigs.length} grippers`,
+            this.jointConfigs.map((c) => c.name),
+        );
+    }
+
+    /** Returns all meshes in the robot model for raycasting */
+    getRaycastTargets(): THREE.Object3D[] {
+        const targets: THREE.Object3D[] = [];
+        this.modelContainer?.traverse((child) => {
+            if (child instanceof THREE.Mesh) {
+                targets.push(child);
+            }
+        });
+        return targets;
     }
 
     setJointAngle(jointName: string, angle: number): void {
@@ -147,18 +287,18 @@ export class RobotArm {
         const clampedAngle = Math.max(config.minAngle, Math.min(config.maxAngle, angle));
         config.currentAngle = clampedAngle;
 
-        const rad = THREE.MathUtils.degToRad(clampedAngle);
-        switch (config.axis) {
-            case "X":
-                joint.rotation.x = rad;
-                break;
-            case "Y":
-                joint.rotation.y = rad;
-                break;
-            case "Z":
-                joint.rotation.z = rad;
-                break;
+        const axisKey = config.axis.toLowerCase() as "x" | "y" | "z";
+        if (config.type === "linear") {
+            const defaultPos = this.jointDefaultPositions.get(jointName);
+            if (defaultPos) {
+                const scaleFactor = this.modelConfig?.transform.scale ?? 1;
+                joint.position[axisKey] = defaultPos[axisKey] + clampedAngle / scaleFactor;
+            }
+        } else {
+            const rad = THREE.MathUtils.degToRad(clampedAngle);
+            joint.rotation[axisKey as keyof THREE.Euler] = rad as any;
         }
+        this.onSceneChanged?.();
     }
 
     animateJointAngle(
@@ -219,7 +359,7 @@ export class RobotArm {
         Object.entries(jointAngles).forEach(([jointName, targetAngle]) => {
             const jointConfig = this.jointConfigs.find((c) => c.name === jointName);
             if (jointConfig) {
-                this.animationState.timeline!.to(
+                this.animationState.timeline?.to(
                     jointConfig,
                     {
                         currentAngle: targetAngle,
@@ -243,18 +383,18 @@ export class RobotArm {
         const clampedAngle = Math.max(config.minAngle, Math.min(config.maxAngle, angle));
         config.currentAngle = clampedAngle;
 
-        const rad = THREE.MathUtils.degToRad(clampedAngle);
-        switch (config.axis) {
-            case "X":
-                gripper.rotation.x = rad;
-                break;
-            case "Y":
-                gripper.rotation.y = rad;
-                break;
-            case "Z":
-                gripper.rotation.z = rad;
-                break;
+        const axisKey = config.axis.toLowerCase() as "x" | "y" | "z";
+        if (config.type === "linear") {
+            const defaultPos = this.jointDefaultPositions.get(gripperName);
+            if (defaultPos) {
+                const scaleFactor = this.modelConfig?.transform.scale ?? 1;
+                gripper.position[axisKey] = defaultPos[axisKey] + clampedAngle / scaleFactor;
+            }
+        } else {
+            const rad = THREE.MathUtils.degToRad(clampedAngle);
+            gripper.rotation[axisKey as keyof THREE.Euler] = rad as any;
         }
+        this.onSceneChanged?.();
     }
 
     setGripperOpenness(openness: number): void {
@@ -299,6 +439,10 @@ export class RobotArm {
         return this.model;
     }
 
+    getModelContainer(): THREE.Group | null {
+        return this.modelContainer;
+    }
+
     toggleAxisHelper(visible?: boolean): void {
         const toggle = (obj: THREE.Object3D) => {
             const helper = obj.children.find((child) => child instanceof THREE.AxesHelper);
@@ -314,7 +458,9 @@ export class RobotArm {
         this.stopAllJointAnimations();
         this.allComponentsConfigs.forEach((config) => {
             gsap.killTweensOf(config, "currentAngle");
-            const duration = Math.abs(config.currentAngle - 0) / this.constantAngularVelocity;
+            const velocity =
+                config.type === "linear" ? this.constantLinearVelocity : this.constantAngularVelocity;
+            const duration = Math.abs(config.currentAngle - 0) / velocity;
             gsap.to(config, {
                 currentAngle: 0,
                 duration,
@@ -334,8 +480,9 @@ export class RobotArm {
         this.stopAllJointAnimations();
         this.allComponentsConfigs.forEach((config) => {
             gsap.killTweensOf(config, "currentAngle");
-            const duration =
-                Math.abs(config.currentAngle - config.defaultAngle) / this.constantAngularVelocity;
+            const velocity =
+                config.type === "linear" ? this.constantLinearVelocity : this.constantAngularVelocity;
+            const duration = Math.abs(config.currentAngle - config.defaultAngle) / velocity;
             gsap.to(config, {
                 currentAngle: config.defaultAngle,
                 duration,
@@ -403,7 +550,8 @@ export class RobotArm {
             await this.loadActionSequence(jsonPath);
         }
 
-        const sequence = this.animationState.currentSequence!;
+        const sequence = this.animationState.currentSequence;
+        if (!sequence) return;
         this.stopAnimation();
 
         const sequenceId = `${sequence.meta.description}_${sequence.meta.created}`;
@@ -412,7 +560,7 @@ export class RobotArm {
 
         this.animationState.timeline = gsap.timeline({
             onUpdate: () => {
-                const progress = this.animationState.timeline!.progress();
+                const progress = this.animationState.timeline?.progress();
                 this.animationState.currentProgress = progress;
                 options.onProgressUpdate?.(progress);
             },
@@ -444,8 +592,12 @@ export class RobotArm {
                     const jointName = this.jointNames[jointIndex];
                     const config = this.jointConfigs.find((c) => c.name === jointName);
                     if (config) {
-                        const targetAngle = THREE.MathUtils.radToDeg(angleRad);
-                        this.animationState.timeline!.to(
+                        const scaleFactor = this.modelConfig?.transform.scale ?? 1;
+                        const targetAngle =
+                            config.type === "linear"
+                                ? angleRad * scaleFactor
+                                : THREE.MathUtils.radToDeg(angleRad);
+                        this.animationState.timeline?.to(
                             config,
                             {
                                 currentAngle: targetAngle,
@@ -463,18 +615,18 @@ export class RobotArm {
             });
 
             if (frame.io?.digital_output_0 !== undefined) {
-                const openness = frame.io!.digital_output_0 ? 0 : 1;
-                this.animationState.timeline!.call(
+                const openness = frame.io?.digital_output_0 ? 0 : 1;
+                this.animationState.timeline?.call(
                     () => {
                         this.animateGripperOpenness(openness);
-                        options.onGripperChange?.(frame.io!.digital_output_0!);
+                        options.onGripperChange?.(frame.io?.digital_output_0 ?? false);
                     },
                     [],
                     timeTick,
                 );
             }
 
-            this.animationState.timeline!.call(
+            this.animationState.timeline?.call(
                 () => {
                     this.animationState.currentKeyFrameIndex = index;
                     options.onStateChange?.(frame.id, frame);
@@ -520,8 +672,8 @@ export class RobotArm {
     }
 
     stopAllJointAnimations(): void {
-        this.jointConfigs.forEach((config) => gsap.killTweensOf(config));
-        this.gripperConfigs.forEach((config) => gsap.killTweensOf(config));
+        for (const config of this.jointConfigs) gsap.killTweensOf(config);
+        for (const config of this.gripperConfigs) gsap.killTweensOf(config);
     }
 
     setAnimationProgress(progress: number): void {
@@ -560,9 +712,12 @@ export class RobotArm {
                 const jointName = this.jointNames[jointIndex];
                 const config = this.jointConfigs.find((c) => c.name === jointName);
                 if (config) {
-                    let finalAngle = THREE.MathUtils.radToDeg(jointAngle);
+                    const scaleFactor = this.modelConfig?.transform.scale ?? 1;
+                    const convert = (v: number) =>
+                        config.type === "linear" ? v * scaleFactor : THREE.MathUtils.radToDeg(v);
+                    let finalAngle = convert(jointAngle);
                     if (nextFrame && interpolation > 0) {
-                        const nextAngle = THREE.MathUtils.radToDeg(nextFrame.joints[jointIndex]);
+                        const nextAngle = convert(nextFrame.joints[jointIndex]);
                         finalAngle = finalAngle + (nextAngle - finalAngle) * interpolation;
                     }
                     config.currentAngle = finalAngle;
@@ -572,7 +727,7 @@ export class RobotArm {
         });
 
         if (targetFrame.io?.digital_output_0 !== undefined) {
-            const openness = targetFrame.io!.digital_output_0 ? 0 : 1;
+            const openness = targetFrame.io?.digital_output_0 ? 0 : 1;
             this.animateGripperOpenness(openness);
         }
 
@@ -645,7 +800,7 @@ export class RobotArm {
                 if (child instanceof THREE.Mesh) {
                     child.geometry.dispose();
                     if (Array.isArray(child.material)) {
-                        child.material.forEach((m) => m.dispose());
+                        for (const m of child.material) m.dispose();
                     } else {
                         child.material.dispose();
                     }
@@ -660,5 +815,6 @@ export class RobotArm {
         this.jointConfigs = [];
         this.gripperConfigs = [];
         this.allComponentsConfigs = [];
+        this.jointDefaultPositions.clear();
     }
 }

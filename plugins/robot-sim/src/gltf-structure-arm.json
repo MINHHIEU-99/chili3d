@@ -1,0 +1,473 @@
+{
+    "asset": {
+        "generator": "Khronos glTF Blender I/O v3.6.28",
+        "version": "2.0"
+    },
+    "animations": [],
+    "cameras": [],
+    "userData": {},
+    "scene": {
+        "type": "Group",
+        "name": "Scene",
+        "position": [0, 0, 0],
+        "rotation": [0, 0, 0],
+        "scale": [1, 1, 1],
+        "children": [
+            {
+                "type": "Object3D",
+                "name": "robotic_arm_group",
+                "position": [0, 0, 0],
+                "rotation": [0, 0, 0],
+                "scale": [1, 1, 1],
+                "children": [
+                    {
+                        "type": "Object3D",
+                        "name": "base",
+                        "position": [0, 0, 0],
+                        "rotation": [0, 0, 0],
+                        "scale": [1, 1, 1],
+                        "children": [
+                            {
+                                "type": "Mesh",
+                                "name": "base0",
+                                "position": [
+                                    -0.000004708766937255859, 1.342363953590393, -0.000030278089980129153
+                                ],
+                                "rotation": [0, 0, 0],
+                                "scale": [1, 1, 1],
+                                "geometry": {
+                                    "vertices": 204,
+                                    "normals": true,
+                                    "uvs": true,
+                                    "indices": 864,
+                                    "boundingBox": {
+                                        "min": [
+                                            -0.2353372871875763, -0.1399059295654297, -0.23531171679496765
+                                        ],
+                                        "max": [0.2353467047214508, 0.012003064155578613, 0.23537227511405945]
+                                    }
+                                },
+                                "material": {
+                                    "type": "MeshStandardMaterial",
+                                    "name": "Robot_hand"
+                                }
+                            },
+                            {
+                                "type": "Mesh",
+                                "name": "base1",
+                                "position": [
+                                    -0.000004708766937255859, 1.342363953590393, -0.000030278089980129153
+                                ],
+                                "rotation": [0, 0, 0],
+                                "scale": [1, 1, 1],
+                                "geometry": {
+                                    "vertices": 209,
+                                    "normals": true,
+                                    "uvs": true,
+                                    "indices": 792,
+                                    "boundingBox": {
+                                        "min": [
+                                            -0.07159928977489471, 0.012003064155578613, -0.07128971815109253
+                                        ],
+                                        "max": [0.09891071170568466, 0.2241460084915161, 0.07135027647018433]
+                                    }
+                                },
+                                "material": {
+                                    "type": "MeshStandardMaterial",
+                                    "name": "Robot_hand"
+                                },
+                                "children": [
+                                    {
+                                        "type": "Object3D",
+                                        "name": "shoulder_group",
+                                        "position": [
+                                            0.000004708764208771754, -1.3423646688461304,
+                                            0.000030278089980129153
+                                        ],
+                                        "rotation": [0, 0, 0],
+                                        "scale": [1, 1, 1],
+                                        "children": [
+                                            {
+                                                "type": "Mesh",
+                                                "name": "shoulder",
+                                                "position": [
+                                                    0.28574734926223755, 1.4944055080413818,
+                                                    0.0007930613937787712
+                                                ],
+                                                "rotation": [0.6070322439710643, 0, 0],
+                                                "scale": [1, 1, 1],
+                                                "geometry": {
+                                                    "vertices": 602,
+                                                    "normals": true,
+                                                    "uvs": true,
+                                                    "indices": 2292,
+                                                    "boundingBox": {
+                                                        "min": [
+                                                            -0.1868443489074707, -0.07123277336359024,
+                                                            -0.5794805288314819
+                                                        ],
+                                                        "max": [
+                                                            0.00004965066909790039, 0.07126270234584808,
+                                                            0.07183533161878586
+                                                        ]
+                                                    }
+                                                },
+                                                "material": {
+                                                    "type": "MeshStandardMaterial",
+                                                    "name": "Robot_hand"
+                                                },
+                                                "children": [
+                                                    {
+                                                        "type": "Object3D",
+                                                        "name": "elbow_group",
+                                                        "position": [
+                                                            -0.28574714064598083, -1.21808922290802,
+                                                            0.8657400608062744
+                                                        ],
+                                                        "rotation": [-0.00036481026554349667, 0, 0],
+                                                        "scale": [1, 1, 1],
+                                                        "children": [
+                                                            {
+                                                                "type": "Mesh",
+                                                                "name": "elbow1",
+                                                                "position": [
+                                                                    -0.08797378838062286, 1.2184120416641235,
+                                                                    -1.3727890253067017
+                                                                ],
+                                                                "rotation": [0.20708238764064493, 0, 0],
+                                                                "scale": [1, 1, 1],
+                                                                "geometry": {
+                                                                    "vertices": 607,
+                                                                    "normals": true,
+                                                                    "uvs": true,
+                                                                    "indices": 2292,
+                                                                    "boundingBox": {
+                                                                        "min": [
+                                                                            -0.000020213425159454346,
+                                                                            -0.07183605432510376,
+                                                                            -0.07212454080581665
+                                                                        ],
+                                                                        "max": [
+                                                                            0.18687379360198975,
+                                                                            0.5794784426689148,
+                                                                            0.07109218090772629
+                                                                        ]
+                                                                    }
+                                                                },
+                                                                "material": {
+                                                                    "type": "MeshStandardMaterial",
+                                                                    "name": "Robot_hand"
+                                                                },
+                                                                "children": [
+                                                                    {
+                                                                        "type": "Mesh",
+                                                                        "name": "elbow2",
+                                                                        "position": [
+                                                                            0.3740747272968292,
+                                                                            0.506489634513855,
+                                                                            -0.001961849629878998
+                                                                        ],
+                                                                        "rotation": [
+                                                                            -0.002054991715607401, 0, 0
+                                                                        ],
+                                                                        "scale": [1, 1, 1],
+                                                                        "geometry": {
+                                                                            "vertices": 296,
+                                                                            "normals": true,
+                                                                            "uvs": true,
+                                                                            "indices": 1122,
+                                                                            "boundingBox": {
+                                                                                "min": [
+                                                                                    -0.18684707581996918,
+                                                                                    -0.07132484763860703,
+                                                                                    -0.07183635234832764
+                                                                                ],
+                                                                                "max": [
+                                                                                    0.00004693865776062012,
+                                                                                    0.07115127891302109,
+                                                                                    0.1099780946969986
+                                                                                ]
+                                                                            }
+                                                                        },
+                                                                        "material": {
+                                                                            "type": "MeshStandardMaterial",
+                                                                            "name": "Robot_hand"
+                                                                        },
+                                                                        "children": [
+                                                                            {
+                                                                                "type": "Object3D",
+                                                                                "name": "wrist_group",
+                                                                                "position": [
+                                                                                    -0.2861008942127228,
+                                                                                    -1.4568098783493042,
+                                                                                    1.4886995553970337
+                                                                                ],
+                                                                                "rotation": [
+                                                                                    0.0021877036185500268, 0,
+                                                                                    0
+                                                                                ],
+                                                                                "scale": [1, 1, 1],
+                                                                                "children": [
+                                                                                    {
+                                                                                        "type": "Mesh",
+                                                                                        "name": "wrist1",
+                                                                                        "position": [
+                                                                                            0.21455873548984528,
+                                                                                            1.4536819458007812,
+                                                                                            -1.381964921951294
+                                                                                        ],
+                                                                                        "rotation": [0, 0, 0],
+                                                                                        "scale": [1, 1, 1],
+                                                                                        "geometry": {
+                                                                                            "vertices": 578,
+                                                                                            "normals": true,
+                                                                                            "uvs": true,
+                                                                                            "indices": 1788,
+                                                                                            "boundingBox": {
+                                                                                                "min": [
+                                                                                                    -0.07155376672744751,
+                                                                                                    -0.07122434675693512,
+                                                                                                    -0.00004776753485202789
+                                                                                                ],
+                                                                                                "max": [
+                                                                                                    0.30162620544433594,
+                                                                                                    0.07125182449817657,
+                                                                                                    0.1817549169063568
+                                                                                                ]
+                                                                                            }
+                                                                                        },
+                                                                                        "material": {
+                                                                                            "type": "MeshStandardMaterial",
+                                                                                            "name": "Robot_hand"
+                                                                                        },
+                                                                                        "children": [
+                                                                                            {
+                                                                                                "type": "Mesh",
+                                                                                                "name": "electric_line",
+                                                                                                "position": [
+                                                                                                    0.24020445346832275,
+                                                                                                    -0.000021632760763168335,
+                                                                                                    0.031162630766630173
+                                                                                                ],
+                                                                                                "rotation": [
+                                                                                                    -0.001275778512096459,
+                                                                                                    0, 0
+                                                                                                ],
+                                                                                                "scale": [
+                                                                                                    1, 1, 1
+                                                                                                ],
+                                                                                                "geometry": {
+                                                                                                    "vertices": 568,
+                                                                                                    "normals": true,
+                                                                                                    "uvs": true,
+                                                                                                    "indices": 1608,
+                                                                                                    "boundingBox": {
+                                                                                                        "min": [
+                                                                                                            -0.006102263927459717,
+                                                                                                            -0.006110696122050285,
+                                                                                                            -0.07297365367412567
+                                                                                                        ],
+                                                                                                        "max": [
+                                                                                                            0.2481006383895874,
+                                                                                                            0.06639590114355087,
+                                                                                                            0.08124120533466339
+                                                                                                        ]
+                                                                                                    }
+                                                                                                },
+                                                                                                "material": {
+                                                                                                    "type": "MeshStandardMaterial",
+                                                                                                    "name": "Robot_hand"
+                                                                                                }
+                                                                                            },
+                                                                                            {
+                                                                                                "type": "Mesh",
+                                                                                                "name": "gripper_base",
+                                                                                                "position": [
+                                                                                                    0.4367859363555908,
+                                                                                                    0.00010938197374343872,
+                                                                                                    0.10973367094993591
+                                                                                                ],
+                                                                                                "rotation": [
+                                                                                                    -0.001275778512096459,
+                                                                                                    0, 0
+                                                                                                ],
+                                                                                                "scale": [
+                                                                                                    1, 1, 1
+                                                                                                ],
+                                                                                                "geometry": {
+                                                                                                    "vertices": 905,
+                                                                                                    "normals": true,
+                                                                                                    "uvs": true,
+                                                                                                    "indices": 1950,
+                                                                                                    "boundingBox": {
+                                                                                                        "min": [
+                                                                                                            -0.13516384363174438,
+                                                                                                            -0.03434852883219719,
+                                                                                                            -0.07177063822746277
+                                                                                                        ],
+                                                                                                        "max": [
+                                                                                                            0.11455321311950684,
+                                                                                                            0.04284294322133064,
+                                                                                                            0.07172887772321701
+                                                                                                        ]
+                                                                                                    }
+                                                                                                },
+                                                                                                "material": {
+                                                                                                    "type": "MeshStandardMaterial",
+                                                                                                    "name": "Robot_hand"
+                                                                                                }
+                                                                                            },
+                                                                                            {
+                                                                                                "type": "Object3D",
+                                                                                                "name": "gripper_group",
+                                                                                                "position": [
+                                                                                                    -0.21455879509449005,
+                                                                                                    -1.453681468963623,
+                                                                                                    1.3819642066955566
+                                                                                                ],
+                                                                                                "rotation": [
+                                                                                                    0, 0, 0
+                                                                                                ],
+                                                                                                "scale": [
+                                                                                                    1, 1, 1
+                                                                                                ],
+                                                                                                "children": [
+                                                                                                    {
+                                                                                                        "type": "Mesh",
+                                                                                                        "name": "gripper1",
+                                                                                                        "position": [
+                                                                                                            0.7330504655838013,
+                                                                                                            1.4770182371139526,
+                                                                                                            -1.2730311155319214
+                                                                                                        ],
+                                                                                                        "rotation": [
+                                                                                                            0,
+                                                                                                            0,
+                                                                                                            0
+                                                                                                        ],
+                                                                                                        "scale": [
+                                                                                                            1,
+                                                                                                            1,
+                                                                                                            1
+                                                                                                        ],
+                                                                                                        "geometry": {
+                                                                                                            "vertices": 305,
+                                                                                                            "normals": true,
+                                                                                                            "uvs": true,
+                                                                                                            "indices": 468,
+                                                                                                            "boundingBox": {
+                                                                                                                "min": [
+                                                                                                                    -0.029554270207881927,
+                                                                                                                    -0.046578649431467056,
+                                                                                                                    -0.11478418111801147
+                                                                                                                ],
+                                                                                                                "max": [
+                                                                                                                    0.17452886700630188,
+                                                                                                                    -0.000010153595212614164,
+                                                                                                                    0.004479349125176668
+                                                                                                                ]
+                                                                                                            }
+                                                                                                        },
+                                                                                                        "material": {
+                                                                                                            "type": "MeshStandardMaterial",
+                                                                                                            "name": "Robot_hand"
+                                                                                                        }
+                                                                                                    },
+                                                                                                    {
+                                                                                                        "type": "Mesh",
+                                                                                                        "name": "gripper2",
+                                                                                                        "position": [
+                                                                                                            0.7330504655838013,
+                                                                                                            1.4770177602767944,
+                                                                                                            -1.2730311155319214
+                                                                                                        ],
+                                                                                                        "rotation": [
+                                                                                                            0,
+                                                                                                            0,
+                                                                                                            0
+                                                                                                        ],
+                                                                                                        "scale": [
+                                                                                                            1,
+                                                                                                            1,
+                                                                                                            1
+                                                                                                        ],
+                                                                                                        "geometry": {
+                                                                                                            "vertices": 294,
+                                                                                                            "normals": true,
+                                                                                                            "uvs": true,
+                                                                                                            "indices": 468,
+                                                                                                            "boundingBox": {
+                                                                                                                "min": [
+                                                                                                                    -0.029783932492136955,
+                                                                                                                    -0.04649015888571739,
+                                                                                                                    -0.004292153753340244
+                                                                                                                ],
+                                                                                                                "max": [
+                                                                                                                    0.17421403527259827,
+                                                                                                                    0.00006891936936881393,
+                                                                                                                    0.11504890024662018
+                                                                                                                ]
+                                                                                                            }
+                                                                                                        },
+                                                                                                        "material": {
+                                                                                                            "type": "MeshStandardMaterial",
+                                                                                                            "name": "Robot_hand"
+                                                                                                        }
+                                                                                                    }
+                                                                                                ]
+                                                                                            }
+                                                                                        ]
+                                                                                    }
+                                                                                ]
+                                                                            }
+                                                                        ]
+                                                                    }
+                                                                ]
+                                                            }
+                                                        ]
+                                                    }
+                                                ]
+                                            }
+                                        ]
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        "type": "Object3D",
+                        "name": "stand_group",
+                        "position": [0, 0, 0],
+                        "rotation": [0, 0, 0],
+                        "scale": [1, 1, 1],
+                        "children": [
+                            {
+                                "type": "Mesh",
+                                "name": "stand",
+                                "position": [0, 0.5916266441345215, 0],
+                                "rotation": [0, 0, 0],
+                                "scale": [1, 1, 1],
+                                "geometry": {
+                                    "vertices": 262,
+                                    "normals": true,
+                                    "uvs": true,
+                                    "indices": 948,
+                                    "boundingBox": {
+                                        "min": [
+                                            -0.8774799704551697, -0.5881156325340271, -0.8774799704551697
+                                        ],
+                                        "max": [0.8774799704551697, 0.6086453199386597, 0.8774799704551697]
+                                    }
+                                },
+                                "material": {
+                                    "type": "MeshStandardMaterial",
+                                    "name": "Stand"
+                                }
+                            }
+                        ]
+                    }
+                ]
+            }
+        ]
+    }
+}

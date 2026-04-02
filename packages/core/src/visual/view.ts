@@ -4,12 +4,20 @@
 import type { IDocument } from "../document";
 import type { IDisposable, IPropertyChanged } from "../foundation";
 import type { I18nKeys } from "../i18n";
-import type { Plane, Ray, XY, XYLike, XYZ, XYZLike } from "../math";
+import type { Matrix4, Plane, Ray, XY, XYLike, XYZ, XYZLike } from "../math";
+import type { VisualNode } from "../model";
 import type { INodeFilter, IShapeFilter } from "../selectionFilter";
 import type { ShapeType } from "../shape";
 import type { ICameraController } from "./cameraController";
 import type { VisualShapeData } from "./detectedData";
 import type { IVisualObject } from "./visualObject";
+
+export interface ITransformGizmo extends IDisposable {
+    /** The accumulated transform matrix (translation + rotation) */
+    getTransform(): Matrix4;
+    /** Promise that resolves when the user confirms (Enter) or rejects on cancel (Escape) */
+    waitForResult(): Promise<Matrix4>;
+}
 
 export const ViewModes = ["solid", "wireframe", "solidAndWireframe"] as const;
 
@@ -76,6 +84,7 @@ export interface IView extends IPropertyChanged, IDisposable {
         shapeFilter?: IShapeFilter,
         nodeFilter?: INodeFilter,
     ): VisualShapeData[];
+    createTransformGizmo?(nodes: VisualNode[], mode?: "translate" | "rotate"): ITransformGizmo | undefined;
 }
 
 export function screenDistance(view: IView, mx: number, my: number, point: XYZ) {

@@ -5,6 +5,8 @@ import { command, type I18nKeys, type IApplication, type ICommand, PubSub } from
 import { getRobotArm } from "../core/robot-registry";
 import { RobotControlPanel } from "../ui/control-panel";
 
+const PANEL_ID = "robot-control-panel";
+
 @command({
     key: "robot.controlPanel" as any,
     icon: {
@@ -14,8 +16,12 @@ import { RobotControlPanel } from "../ui/control-panel";
 })
 export class OpenControlPanelCommand implements ICommand {
     async execute(application: IApplication): Promise<void> {
-        const document = application.activeView?.document;
-        const robotArm = getRobotArm(document);
+        if (document.getElementById(PANEL_ID)) {
+            return;
+        }
+
+        const doc = application.activeView?.document;
+        const robotArm = getRobotArm(doc);
 
         if (!robotArm) {
             PubSub.default.pub("showToast", "robot.toast.noRobot" as I18nKeys);
@@ -23,10 +29,12 @@ export class OpenControlPanelCommand implements ICommand {
         }
 
         const panel = new RobotControlPanel(robotArm);
+        const content = panel.render();
+        content.id = PANEL_ID;
 
         PubSub.default.pub("showFloatPanel", {
             title: "robot.controlPanel.title" as I18nKeys,
-            content: panel.render(),
+            content,
             width: 360,
             height: 600,
             onClose: () => panel.dispose(),

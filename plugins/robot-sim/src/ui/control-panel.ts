@@ -9,7 +9,7 @@ import style from "../styles/robot-sim.module.css";
 
 export class RobotControlPanel {
     private jointSliders: Map<string, HTMLInputElement> = new Map();
-    private jointValueLabels: Map<string, HTMLElement> = new Map();
+    private jointValueInputs: Map<string, HTMLInputElement> = new Map();
     private progressSlider: HTMLInputElement | null = null;
     private progressLabel: HTMLElement | null = null;
     private frameIdLabel: HTMLElement | null = null;
@@ -33,14 +33,18 @@ export class RobotControlPanel {
     constructor(private robotArm: RobotArm) {}
 
     render(): HTMLElement {
-        const container = div(
-            { className: style.panelContainer },
+        const sections: (HTMLElement | null)[] = [
             this.createWebSocketSection(),
             this.createJointControlSection(),
             this.createGripperSection(),
             this.createResetSection(),
             this.createActionSection(),
             this.createTrajectorySection(),
+        ];
+
+        const container = div(
+            { className: style.panelContainer },
+            ...(sections.filter(Boolean) as HTMLElement[]),
         );
 
         this.startUpdateLoop();
@@ -235,8 +239,9 @@ export class RobotControlPanel {
         return div({ className: style.section }, header, ...sliders);
     }
 
-    private createGripperSection(): HTMLElement {
+    private createGripperSection(): HTMLElement | null {
         const gripperConfigs = this.robotArm.getGripperConfigs();
+        if (gripperConfigs.length === 0) return null;
 
         const gripperSliders = gripperConfigs.map((config) => this.createJointSlider(config, true));
 
@@ -256,14 +261,12 @@ export class RobotControlPanel {
     }
 
     private createResetSection(): HTMLElement {
-        const idleBtn = button({
-            textContent: "Idle Pose",
+        const pauseBtn = button({
+            textContent: "Pause",
             className: style.actionButton,
             onclick: () => {
-                this.robotArm.resetToDefault({
-                    onUpdate: () => this.refreshAllSliders(),
-                    onComplete: () => this.refreshAllSliders(),
-                });
+                this.robotArm.stopAllJointAnimations();
+                this.refreshAllSliders();
             },
         }) as HTMLButtonElement;
 
@@ -278,7 +281,7 @@ export class RobotControlPanel {
             },
         }) as HTMLButtonElement;
 
-        return div({ className: style.buttonRow }, idleBtn, zeroBtn);
+        return div({ className: style.buttonRow }, zeroBtn, pauseBtn);
     }
 
     private createActionSection(): HTMLElement {
@@ -415,39 +418,64 @@ export class RobotControlPanel {
     }
 
     private createJointSlider(config: JointConfig, isGripper: boolean): HTMLElement {
-        const valueLabel = span({
-            textContent: `${config.currentAngle.toFixed(1)}`,
-            className: style.sliderValue,
-        });
+        const unit = config.type === "linear" ? "mm" : "°";
+        const step = config.type === "linear" ? "10" : "1";
+
+        const valueInput = input({
+            type: "number",
+            min: String(config.minAngle),
+            max: String(config.maxAngle),
+            step,
+            value: String(parseFloat(config.currentAngle.toFixed(1))),
+            className: style["sliderValue"],
+        }) as HTMLInputElement;
 
         const slider = input({
             type: "range",
             min: String(config.minAngle),
             max: String(config.maxAngle),
-            step: "1",
+            step,
             value: String(config.currentAngle),
             className: style.slider,
         }) as HTMLInputElement;
 
-        slider.addEventListener("input", () => {
+        const applyAngle = (angle: number) => {
             if (this.isPlaying || this.isDraggingProgress) return;
-            const angle = parseFloat(slider.value);
+            const clamped = Math.max(config.minAngle, Math.min(config.maxAngle, angle));
             if (isGripper) {
-                this.robotArm.setGripperAngle(config.name, angle);
+                this.robotArm.setGripperAngle(config.name, clamped);
             } else {
-                this.robotArm.setJointAngle(config.name, angle);
+                this.robotArm.setJointAngle(config.name, clamped);
             }
-            valueLabel.textContent = `${angle.toFixed(1)}`;
+        };
+
+        slider.addEventListener("input", () => {
+            const angle = parseFloat(slider.value);
+            applyAngle(angle);
+            valueInput.value = String(parseFloat(angle.toFixed(1)));
+        });
+
+        valueInput.addEventListener("change", () => {
+            const angle = parseFloat(valueInput.value);
+            if (Number.isNaN(angle)) return;
+            applyAngle(angle);
+            slider.value = String(Math.max(config.minAngle, Math.min(config.maxAngle, angle)));
+            valueInput.value = String(
+                parseFloat(Math.max(config.minAngle, Math.min(config.maxAngle, angle)).toFixed(1)),
+            );
         });
 
         this.jointSliders.set(config.name, slider);
-        this.jointValueLabels.set(config.name, valueLabel);
+        this.jointValueInputs.set(config.name, valueInput);
+
+        const unitLabel = span({ textContent: unit, className: style.sliderUnit });
 
         return div(
             { className: style.sliderRow },
             label({ textContent: config.name, className: style.sliderLabel }),
             slider,
-            valueLabel,
+            valueInput,
+            unitLabel,
         );
     }
 
@@ -493,12 +521,12 @@ export class RobotControlPanel {
 
         [...jointConfigs, ...gripperConfigs].forEach((config) => {
             const slider = this.jointSliders.get(config.name);
-            const valueLabel = this.jointValueLabels.get(config.name);
+            const valueInput = this.jointValueInputs.get(config.name);
             if (slider) {
                 slider.value = String(config.currentAngle);
             }
-            if (valueLabel) {
-                valueLabel.textContent = `${config.currentAngle.toFixed(1)}`;
+            if (valueInput) {
+                valueInput.value = String(parseFloat(config.currentAngle.toFixed(1)));
             }
         });
     }
@@ -507,12 +535,12 @@ export class RobotControlPanel {
         const gripperConfigs = this.robotArm.getGripperConfigs();
         gripperConfigs.forEach((config) => {
             const slider = this.jointSliders.get(config.name);
-            const valueLabel = this.jointValueLabels.get(config.name);
+            const valueInput = this.jointValueInputs.get(config.name);
             if (slider) {
                 slider.value = String(config.currentAngle);
             }
-            if (valueLabel) {
-                valueLabel.textContent = `${config.currentAngle.toFixed(1)}`;
+            if (valueInput) {
+                valueInput.value = String(parseFloat(config.currentAngle.toFixed(1)));
             }
         });
     }
@@ -623,6 +651,6 @@ export class RobotControlPanel {
         this.wsManager?.disconnect();
         this.wsManager = null;
         this.jointSliders.clear();
-        this.jointValueLabels.clear();
+        this.jointValueInputs.clear();
     }
 }

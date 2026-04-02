@@ -88,9 +88,10 @@ export class JointAnimationQueue {
             const jointConfigs = this.robotArm.getJointConfigs();
             const jointAngles: Record<string, number> = {};
 
-            frame.joints.forEach((angleRad, index) => {
+            frame.joints.forEach((value, index) => {
                 if (index < jointConfigs.length) {
-                    jointAngles[jointConfigs[index].name] = (angleRad * 180) / Math.PI;
+                    const config = jointConfigs[index];
+                    jointAngles[config.name] = config.type === "linear" ? value : (value * 180) / Math.PI;
                 }
             });
 

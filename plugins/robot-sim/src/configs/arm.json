@@ -1,0 +1,19 @@
+{
+    "modelId": "arm",
+    "displayName": "Robotic Arm",
+    "transform": {
+        "scale": 100,
+        "yUpToZUp": true
+    },
+    "joints": [
+        { "name": "base1", "axis": "Y", "type": "rotational", "min": -360, "max": 360 },
+        { "name": "shoulder", "axis": "X", "type": "rotational", "min": -360, "max": 360 },
+        { "name": "elbow1", "axis": "X", "type": "rotational", "min": -360, "max": 360 },
+        { "name": "elbow2", "axis": "X", "type": "rotational", "min": -360, "max": 360 },
+        { "name": "wrist1", "axis": "Z", "type": "rotational", "min": -360, "max": 360 }
+    ],
+    "grippers": [
+        { "name": "gripper1", "axis": "Y", "type": "rotational", "min": -23, "max": 30 },
+        { "name": "gripper2", "axis": "Y", "type": "rotational", "min": -30, "max": 23 }
+    ]
+}

@@ -12,19 +12,19 @@ export const DefaultDarkEdgeColor = 0xeeeeee;
 
 export class VisualItemConfig extends Observable {
     defaultFaceColor = 0xdedede;
-    highlightEdgeColor = 0x33ff33;
-    highlightFaceColor = 0x99ff00;
-    selectedEdgeColor = 0x33ff33;
-    selectedFaceColor = 0x33ff33;
+    highlightEdgeColor = 0x494949;
+    highlightFaceColor = 0x494949;
+    selectedEdgeColor = 0x494949;
+    selectedFaceColor = 0x494949;
     editVertexSize = 7;
-    editVertexColor = 0x33ff33;
+    editVertexColor = 0x494949;
     hintVertexSize = 5;
-    hintVertexColor = 0x33ff33;
+    hintVertexColor = 0x494949;
     trackingVertexSize = 7;
-    trackingVertexColor = 0x33ff33;
+    trackingVertexColor = 0x494949;
     temporaryVertexSize = 5;
-    temporaryVertexColor = 0x33ff33;
-    temporaryEdgeColor = 0x33ff33;
+    temporaryVertexColor = 0x494949;
+    temporaryEdgeColor = 0x494949;
 
     get defaultEdgeColor() {
         return this.getPrivateValue("defaultEdgeColor", DefaultLightEdgeColor);

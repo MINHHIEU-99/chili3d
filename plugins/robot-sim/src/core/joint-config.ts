@@ -4,14 +4,45 @@
 import type { Timeline } from "gsap";
 
 export type JointAxis = "X" | "Y" | "Z";
+export type JointType = "rotational" | "linear";
 
 export interface JointConfig {
     name: string;
     axis: JointAxis;
+    type: JointType;
+    /** Degrees for rotational, distance units for linear */
     minAngle: number;
     maxAngle: number;
     defaultAngle: number;
     currentAngle: number;
+}
+
+export interface RobotModelConfig {
+    modelId: string;
+    displayName: string;
+    kinematicRoot?: string;
+    transform: {
+        scale: number;
+        yUpToZUp: boolean;
+    };
+    joints: Array<{
+        name: string;
+        axis: JointAxis;
+        type: JointType;
+        min: number;
+        max: number;
+        default?: number;
+        /** Visual nodes to sync with this joint's transform */
+        linkedVisualNodes?: string[];
+    }>;
+    grippers?: Array<{
+        name: string;
+        axis: JointAxis;
+        type: JointType;
+        min: number;
+        max: number;
+        default?: number;
+    }>;
 }
 
 export interface JSONKeyFrame {
@@ -48,16 +79,3 @@ export interface AnimationState {
     timeline: Timeline | null;
     currentSequence: JSONActionSequence | null;
 }
-
-export const JOINT_AXIS_MAP: Record<string, JointAxis> = {
-    base1: "Y",
-    shoulder: "X",
-    elbow1: "X",
-    elbow2: "X",
-    wrist1: "Z",
-};
-
-export const GRIPPER_AXIS_MAP: Record<string, JointAxis> = {
-    gripper1: "Y",
-    gripper2: "Y",
-};

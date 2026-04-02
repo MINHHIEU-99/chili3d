@@ -2,6 +2,7 @@
 // See LICENSE file in the project root for full license information.
 
 import {
+    BoundingBox,
     debounce,
     type HtmlTextOptions,
     type IDisposable,
@@ -10,6 +11,7 @@ import {
     type IShape,
     type IShapeFilter,
     type ISubShape,
+    type ITransformGizmo,
     type IView,
     type IViewGizmo,
     type IVisualObject,
@@ -34,16 +36,21 @@ import {
 import { div, span, svg } from "@chili3d/element";
 import {
     DirectionalLight,
+    Group,
     type Intersection,
+    Mesh,
+    MeshBasicMaterial,
     type Object3D,
     OrthographicCamera,
     PerspectiveCamera,
     Raycaster,
     type Scene,
+    Matrix4 as ThreeMatrix4,
     Vector2,
     Vector3,
     WebGLRenderer,
 } from "three";
+import { TransformControls } from "three/examples/jsm/controls/TransformControls.js";
 import { SelectionBox } from "three/examples/jsm/interactive/SelectionBox.js";
 import { LineSegments2 } from "three/examples/jsm/lines/LineSegments2.js";
 import { CSS2DObject, CSS2DRenderer } from "three/examples/jsm/renderers/CSS2DRenderer.js";
@@ -669,5 +676,142 @@ export class ThreeView extends Observable implements IView {
             Points: { threshold },
         };
         return raycaster;
+    }
+
+    createTransformGizmo(nodes: VisualNode[], mode?: "translate" | "rotate"): ITransformGizmo | undefined {
+        if (nodes.length === 0 || !this._dom) return undefined;
+
+        // Find the center of the selected nodes' bounding boxes
+        let combinedBox: BoundingBox | undefined;
+        const visuals: ThreeVisualObject[] = [];
+        for (const node of nodes) {
+            const visual = this.content.getVisual(node);
+            if (visual instanceof ThreeVisualObject) {
+                visuals.push(visual);
+                const box = node.boundingBox();
+                combinedBox = BoundingBox.combine(combinedBox, box);
+            }
+        }
+        if (visuals.length === 0) return undefined;
+
+        const center = BoundingBox.center(combinedBox);
+
+        // Create an anchor Object3D at the center for TransformControls to attach to
+        const anchor = new Group();
+        anchor.position.set(center.x, center.y, center.z);
+        this._scene.add(anchor);
+
+        const controls = new TransformControls(this.camera, this._dom);
+        controls.setMode(mode ?? "translate");
+        controls.attach(anchor);
+
+        this._scene.add(controls.getHelper());
+
+        const startPosition = new Vector3(center.x, center.y, center.z);
+
+        // Create a semi-transparent ghost clone of the selected objects.
+        // Ghost children are stored relative to center so rotation around center works.
+        const ghostMaterial = new MeshBasicMaterial({
+            color: 0x4488ff,
+            transparent: true,
+            opacity: 0.3,
+            depthWrite: false,
+        });
+        const ghostGroup = new Group();
+        ghostGroup.position.set(center.x, center.y, center.z);
+        const centerOffset = new ThreeMatrix4().makeTranslation(-center.x, -center.y, -center.z);
+        for (const vis of visuals) {
+            vis.traverse((child) => {
+                if (child instanceof Mesh && child.geometry) {
+                    const ghost = new Mesh(child.geometry, ghostMaterial);
+                    ghost.matrixAutoUpdate = false;
+                    // Store in center-relative space
+                    ghost.matrix.copy(new ThreeMatrix4().multiplyMatrices(centerOffset, child.matrixWorld));
+                    ghost.matrixWorld.copy(child.matrixWorld);
+                    ghostGroup.add(ghost);
+                }
+            });
+        }
+        this._scene.add(ghostGroup);
+
+        // Disable camera rotation while dragging the gizmo
+        const visual = this.document.visual;
+        controls.addEventListener("dragging-changed", (event: any) => {
+            visual.viewHandler.isEnabled = !event.value;
+        });
+
+        // Update ghost to follow gizmo translation + rotation
+        controls.addEventListener("change", () => {
+            ghostGroup.position.copy(anchor.position);
+            ghostGroup.quaternion.copy(anchor.quaternion);
+            this.update();
+        });
+
+        let resolvePromise: ((value: Matrix4) => void) | null = null;
+        let rejectPromise: ((reason?: any) => void) | null = null;
+
+        const cleanup = () => {
+            controls.detach();
+            this._scene.remove(controls.getHelper());
+            controls.dispose();
+            this._scene.remove(anchor);
+            this._scene.remove(ghostGroup);
+            ghostMaterial.dispose();
+            visual.viewHandler.isEnabled = true;
+            this.update();
+        };
+
+        const getTransform = (): Matrix4 => {
+            // Build the full transform matrix:
+            // 1. Translate so center goes to origin
+            // 2. Apply rotation
+            // 3. Translate back to center
+            // 4. Apply translation offset
+            const dx = anchor.position.x - startPosition.x;
+            const dy = anchor.position.y - startPosition.y;
+            const dz = anchor.position.z - startPosition.z;
+
+            const toOrigin = new ThreeMatrix4().makeTranslation(-center.x, -center.y, -center.z);
+            const rotation = new ThreeMatrix4().makeRotationFromQuaternion(anchor.quaternion);
+            const fromOrigin = new ThreeMatrix4().makeTranslation(
+                center.x + dx,
+                center.y + dy,
+                center.z + dz,
+            );
+
+            const result = new ThreeMatrix4().multiplyMatrices(fromOrigin, rotation).multiply(toOrigin);
+            return ThreeHelper.toMatrix(result);
+        };
+
+        const keyHandler = (event: KeyboardEvent) => {
+            if (event.key === "Enter") {
+                event.stopPropagation();
+                document.removeEventListener("keydown", keyHandler, true);
+                resolvePromise?.(getTransform());
+            } else if (event.key === "Escape") {
+                event.stopPropagation();
+                document.removeEventListener("keydown", keyHandler, true);
+                rejectPromise?.(new Error("cancelled"));
+            } else if (event.key === "t" || event.key === "T") {
+                controls.setMode("translate");
+            } else if (event.key === "r" || event.key === "R") {
+                controls.setMode("rotate");
+            }
+        };
+        document.addEventListener("keydown", keyHandler, true);
+
+        return {
+            getTransform,
+            waitForResult(): Promise<Matrix4> {
+                return new Promise<Matrix4>((resolve, reject) => {
+                    resolvePromise = resolve;
+                    rejectPromise = reject;
+                });
+            },
+            dispose() {
+                document.removeEventListener("keydown", keyHandler, true);
+                cleanup();
+            },
+        };
     }
 }

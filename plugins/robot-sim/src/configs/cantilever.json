@@ -1,0 +1,35 @@
+{
+    "modelId": "cantilever",
+    "displayName": "9-Axis Cantilever",
+    "kinematicRoot": "Cantilever_Kinematic",
+    "transform": {
+        "scale": 1000,
+        "yUpToZUp": true
+    },
+    "joints": [
+        {
+            "name": "X_AXIS_1",
+            "axis": "X",
+            "type": "linear",
+            "min": -19200,
+            "max": 150,
+            "linkedVisualNodes": ["X_AXIS"]
+        },
+        {
+            "name": "Y_AXIS_1",
+            "axis": "Z",
+            "type": "linear",
+            "min": -330,
+            "max": 2000,
+            "linkedVisualNodes": ["Y_AXIS"]
+        },
+        {
+            "name": "Z_AXIS_1",
+            "axis": "Y",
+            "type": "linear",
+            "min": -500,
+            "max": 0,
+            "linkedVisualNodes": ["Z_AXIS"]
+        }
+    ]
+}
