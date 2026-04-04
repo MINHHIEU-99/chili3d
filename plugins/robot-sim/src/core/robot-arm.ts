@@ -13,6 +13,14 @@ import type {
 } from "./joint-config";
 import { type TrajectoryPoint, TrajectoryVisualizer } from "./trajectory-visualizer";
 
+export interface ExtractedMeshData {
+    name: string;
+    position: Float32Array;
+    normal: Float32Array;
+    index: Uint32Array;
+    color: number;
+}
+
 export class RobotArm {
     private model: THREE.Group | null = null;
     private joints: Map<string, THREE.Object3D> = new Map();
@@ -40,6 +48,11 @@ export class RobotArm {
     private trajectoryRecordingInterval: number | null = null;
     private currentTrajectoryFrameId: number = 0;
     private modelContainer: THREE.Group | null = null;
+    private tcpGizmo: THREE.AxesHelper | null = null;
+    // private gridHelper: THREE.GridHelper | null = null;
+    private robotSubtree: THREE.Object3D | null = null;
+    private isRobotSelected = false;
+    private savedMaterials: Map<THREE.Mesh, THREE.Material | THREE.Material[]> = new Map();
     private directionalLight: THREE.DirectionalLight | null = null;
     private onSceneChanged: (() => void) | null = null;
 
@@ -62,7 +75,7 @@ export class RobotArm {
     async loadModelFromUrl(url: string): Promise<void> {
         const gltf = await this.loader.loadAsync(url);
 
-        // // Save GLTF structure to a JSON file for inspection
+        // Save GLTF structure to a JSON file for inspection
         // const buildHierarchy = (obj: THREE.Object3D): object => {
         //     const info: Record<string, unknown> = {
         //         type: obj.type,
@@ -94,7 +107,7 @@ export class RobotArm {
         //     }
         //     return info;
         // };
-        //
+
         // const gltfData = {
         //     asset: gltf.asset,
         //     animations: gltf.animations.map((a) => ({
@@ -106,7 +119,7 @@ export class RobotArm {
         //     userData: gltf.userData,
         //     scene: buildHierarchy(gltf.scene),
         // };
-        //
+
         // const blob = new Blob([JSON.stringify(gltfData, null, 2)], { type: "application/json" });
         // const a = document.createElement("a");
         // a.href = URL.createObjectURL(blob);
@@ -244,7 +257,10 @@ export class RobotArm {
         // Reparent linked visual nodes under their kinematic joints.
         // This ensures the kinematic chain propagates transforms to visual geometry.
         // Collect first, then reparent — modifying the scene graph during traverse crashes.
-        const reparentQueue: { joint: THREE.Object3D; visual: THREE.Object3D }[] = [];
+        const reparentQueue: {
+            joint: THREE.Object3D;
+            visual: THREE.Object3D;
+        }[] = [];
         for (const jointDef of this.modelConfig.joints) {
             if (jointDef.linkedVisualNodes && jointDef.linkedVisualNodes.length > 0) {
                 const kinematicJoint = this.joints.get(jointDef.name);
@@ -252,7 +268,10 @@ export class RobotArm {
                 const visualNames = new Set(jointDef.linkedVisualNodes);
                 this.model.traverse((child) => {
                     if (visualNames.has(child.name)) {
-                        reparentQueue.push({ joint: kinematicJoint, visual: child });
+                        reparentQueue.push({
+                            joint: kinematicJoint,
+                            visual: child,
+                        });
                     }
                 });
             }
@@ -266,6 +285,27 @@ export class RobotArm {
             `[RobotSim] Initialized ${this.jointConfigs.length} joints, ${this.gripperConfigs.length} grippers`,
             this.jointConfigs.map((c) => c.name),
         );
+
+        // Find the robot arm subtree for selection
+        this.model.traverse((child) => {
+            if (child.name === "Robot_SA122000H") {
+                this.robotSubtree = child;
+            }
+        });
+
+        // Attach a visible axes gizmo to the TCP node (Z = torch direction)
+        // Swap X and Y axes so the gizmo matches the expected orientation
+        this.model.traverse((child) => {
+            if (child.name === "TCP") {
+                this.tcpGizmo = new THREE.AxesHelper(0.1);
+                const swapGroup = new THREE.Group();
+                swapGroup.matrix.set(0, 1, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1);
+                swapGroup.matrixAutoUpdate = false;
+                swapGroup.add(this.tcpGizmo);
+                child.add(swapGroup);
+                console.log("[RobotSim] TCP gizmo attached");
+            }
+        });
     }
 
     /** Returns all meshes in the robot model for raycasting */
@@ -277,6 +317,60 @@ export class RobotArm {
             }
         });
         return targets;
+    }
+
+    /** Returns meshes belonging to the Robot_SA122000H subtree */
+    getRobotArmTargets(): THREE.Object3D[] {
+        const targets: THREE.Object3D[] = [];
+        this.robotSubtree?.traverse((child) => {
+            if (child instanceof THREE.Mesh) {
+                targets.push(child);
+            }
+        });
+        return targets;
+    }
+
+    /** Check if a mesh belongs to the Robot_SA122000H subtree */
+    isRobotArmMesh(mesh: THREE.Object3D): boolean {
+        if (!this.robotSubtree) return false;
+        let current: THREE.Object3D | null = mesh;
+        while (current) {
+            if (current === this.robotSubtree) return true;
+            current = current.parent;
+        }
+        return false;
+    }
+
+    /** Toggle selection highlight on the robot arm */
+    selectRobotArm(selected: boolean): void {
+        if (this.isRobotSelected === selected) return;
+        this.isRobotSelected = selected;
+
+        if (!this.robotSubtree) return;
+
+        if (selected) {
+            this.robotSubtree.traverse((child) => {
+                if (child instanceof THREE.Mesh) {
+                    this.savedMaterials.set(child, child.material);
+                    const originalMat = Array.isArray(child.material) ? child.material[0] : child.material;
+                    const highlightMat = (originalMat as THREE.MeshStandardMaterial).clone();
+                    highlightMat.emissive = new THREE.Color(0x335599);
+                    highlightMat.emissiveIntensity = 0.4;
+                    child.material = highlightMat;
+                }
+            });
+        } else {
+            this.savedMaterials.forEach((mat, mesh) => {
+                mesh.material = mat;
+            });
+            this.savedMaterials.clear();
+        }
+
+        this.onSceneChanged?.();
+    }
+
+    getIsRobotSelected(): boolean {
+        return this.isRobotSelected;
     }
 
     setJointAngle(jointName: string, angle: number): void {
@@ -452,6 +546,20 @@ export class RobotArm {
         };
         this.joints.forEach(toggle);
         this.grippers.forEach(toggle);
+
+        // const show = visible !== undefined ? visible : !this.gridHelper?.visible;
+        // if (show && !this.gridHelper && this.modelContainer) {
+        //     const size = 5;
+        //     const divisions = 50;
+        //     this.gridHelper = new THREE.GridHelper(size, divisions, 0x888888, 0x444444);
+        //     // GridHelper is created in XZ plane (Y-up), rotate to XY plane (Z-up)
+        //     this.gridHelper.rotation.x = Math.PI / 2;
+        //     this.modelContainer.add(this.gridHelper);
+        // }
+        // if (this.gridHelper) {
+        //     this.gridHelper.visible = show;
+        // }
+        // this.onSceneChanged?.();
     }
 
     reset0(options?: { onUpdate?: (config: JointConfig) => void; onComplete?: () => void }): void {
@@ -782,11 +890,114 @@ export class RobotArm {
         }
     }
 
+    /**
+     * Extract mesh data from Robot_SA122000H subtree for creating Chili3D MeshNodes.
+     * Bakes world transforms into vertex positions/normals so nodes can use identity transform.
+     */
+    extractRobotArmMeshes(): ExtractedMeshData[] {
+        if (!this.robotSubtree || !this.modelContainer) return [];
+
+        const results: ExtractedMeshData[] = [];
+        const normalMatrix = new THREE.Matrix3();
+
+        this.robotSubtree.traverse((child) => {
+            if (!(child instanceof THREE.Mesh)) return;
+
+            const geo = child.geometry as THREE.BufferGeometry;
+            const posAttr = geo.attributes.position;
+            const normAttr = geo.attributes.normal;
+            if (!posAttr) return;
+
+            // Compute world matrix including modelContainer's scale and rotation
+            child.updateWorldMatrix(true, false);
+            const worldMatrix = child.matrixWorld.clone();
+            normalMatrix.getNormalMatrix(worldMatrix);
+
+            // Extract and transform positions
+            const vertexCount = posAttr.count;
+            const position = new Float32Array(vertexCount * 3);
+            const tempVec = new THREE.Vector3();
+            for (let i = 0; i < vertexCount; i++) {
+                tempVec.fromBufferAttribute(posAttr, i);
+                tempVec.applyMatrix4(worldMatrix);
+                position[i * 3] = tempVec.x;
+                position[i * 3 + 1] = tempVec.y;
+                position[i * 3 + 2] = tempVec.z;
+            }
+
+            // Extract and transform normals
+            const normal = new Float32Array(vertexCount * 3);
+            if (normAttr) {
+                const tempNorm = new THREE.Vector3();
+                for (let i = 0; i < vertexCount; i++) {
+                    tempNorm.fromBufferAttribute(normAttr, i);
+                    tempNorm.applyMatrix3(normalMatrix).normalize();
+                    normal[i * 3] = tempNorm.x;
+                    normal[i * 3 + 1] = tempNorm.y;
+                    normal[i * 3 + 2] = tempNorm.z;
+                }
+            }
+
+            // Extract indices
+            let index: Uint32Array;
+            if (geo.index) {
+                index = new Uint32Array(geo.index.array);
+            } else {
+                index = new Uint32Array(vertexCount);
+                for (let i = 0; i < vertexCount; i++) index[i] = i;
+            }
+
+            // Extract color from material
+            let color = 0xff8c00; // Default orange
+            const mat = Array.isArray(child.material) ? child.material[0] : child.material;
+            if (mat instanceof THREE.MeshStandardMaterial && mat.color) {
+                color = mat.color.getHex();
+            }
+
+            results.push({
+                name: child.name || `mesh_${results.length}`,
+                position,
+                normal,
+                index,
+                color,
+            });
+        });
+
+        return results;
+    }
+
+    /** Hide the original Robot_SA122000H meshes so only the MeshNode version renders */
+    hideRobotArmMeshes(): void {
+        this.robotSubtree?.traverse((child) => {
+            if (child instanceof THREE.Mesh) {
+                child.visible = false;
+            }
+        });
+    }
+
+    /** Show the original Robot_SA122000H meshes */
+    showRobotArmMeshes(): void {
+        this.robotSubtree?.traverse((child) => {
+            if (child instanceof THREE.Mesh) {
+                child.visible = true;
+            }
+        });
+    }
+
     dispose(): void {
         this.stopAnimation();
         this.stopAllJointAnimations();
         this.stopTrajectoryRecording();
         this.trajectoryVisualizer?.dispose();
+
+        if (this.tcpGizmo) {
+            this.tcpGizmo.dispose();
+            this.tcpGizmo = null;
+        }
+        // if (this.gridHelper) {
+        //     this.gridHelper.dispose();
+        //     this.gridHelper = null;
+        // }
 
         if (this.directionalLight) {
             this.scene.remove(this.directionalLight);
@@ -816,5 +1027,8 @@ export class RobotArm {
         this.gripperConfigs = [];
         this.allComponentsConfigs = [];
         this.jointDefaultPositions.clear();
+        this.savedMaterials.clear();
+        this.robotSubtree = null;
+        this.isRobotSelected = false;
     }
 }

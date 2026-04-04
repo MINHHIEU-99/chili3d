@@ -25,6 +25,16 @@ export interface RobotModelConfig {
         scale: number;
         yUpToZUp: boolean;
     };
+    cantilever?: Array<{
+        name: string;
+        axis: JointAxis;
+        type: JointType;
+        min: number;
+        max: number;
+        default?: number;
+        /** Visual nodes to sync with this joint's transform */
+        linkedVisualNodes?: string[];
+    }>;
     joints: Array<{
         name: string;
         axis: JointAxis;

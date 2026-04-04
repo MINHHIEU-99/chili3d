@@ -2,16 +2,20 @@
 // See LICENSE file in the project root for full license information.
 
 import {
+    Mesh as ChiliMesh,
     type CommandKeys,
     command,
+    FolderNode,
     type I18nKeys,
     type IApplication,
     type ICommand,
+    MeshNode,
+    PhongMaterial,
     PubSub,
 } from "@chili3d/core";
 import * as THREE from "three";
 import armConfig from "../configs/arm.json";
-import cantileverConfig from "../configs/cantilever.json";
+import cantileverConfig from "../configs/cantilever_v2.json";
 import type { RobotModelConfig } from "../core/joint-config";
 import { RobotArm } from "../core/robot-arm";
 import { getRobotArm, registerRobotArm, removeRobotArm } from "../core/robot-registry";
@@ -23,6 +27,61 @@ function detectModelConfig(filename: string): RobotModelConfig {
 }
 
 const clickCleanups = new Map<string, () => void>();
+
+function addRobotArmToDocument(application: IApplication, robotArm: RobotArm): void {
+    const view = application.activeView;
+    const document = view?.document;
+    if (!document) return;
+
+    const meshDataList = robotArm.extractRobotArmMeshes();
+    if (meshDataList.length === 0) return;
+
+    // Create PhongMaterials for each unique color from the GLB model
+    const colorMaterialMap = new Map<number, string>();
+    for (const data of meshDataList) {
+        if (!colorMaterialMap.has(data.color)) {
+            const mat = new PhongMaterial({
+                document,
+                name: `Robot_${data.color.toString(16).padStart(6, "0")}`,
+                color: data.color,
+            });
+            document.modelManager.materials.push(mat);
+            colorMaterialMap.set(data.color, mat.id);
+        }
+    }
+
+    const folder = new FolderNode({
+        document,
+        name: "Robot_SA122000H",
+    });
+
+    for (const data of meshDataList) {
+        const mesh = new ChiliMesh({
+            meshType: "surface",
+            position: data.position,
+            normal: data.normal,
+            index: data.index,
+            color: data.color,
+        });
+
+        const meshNode = new MeshNode({
+            document,
+            mesh,
+            name: data.name,
+            materialId: colorMaterialMap.get(data.color),
+        });
+
+        folder.add(meshNode);
+    }
+
+    document.modelManager.addNode(folder);
+    document.visual.update();
+
+    // Hide original GLB meshes so only the MeshNode version renders
+    robotArm.hideRobotArmMeshes();
+
+    console.log(`[RobotSim] Added ${meshDataList.length} mesh nodes for Robot_SA122000H to document`);
+}
 
 function getContext(application: IApplication) {
     const view = application.activeView;
@@ -72,14 +131,6 @@ function setupClickDetection(view: any, robotArm: RobotArm, docId: string) {
         raycaster.setFromCamera(pointer, camera);
 
         const targets = robotArm.getRaycastTargets();
-        console.log(
-            "[RobotSim] Click detected, targets:",
-            targets.length,
-            "pointer:",
-            pointer.x.toFixed(3),
-            pointer.y.toFixed(3),
-        );
-
         if (targets.length === 0) return;
 
         // Ensure world matrices are up-to-date for raycasting
@@ -88,10 +139,18 @@ function setupClickDetection(view: any, robotArm: RobotArm, docId: string) {
         }
 
         const intersects = raycaster.intersectObjects(targets, false);
-        console.log("[RobotSim] Intersections:", intersects.length);
 
         if (intersects.length > 0) {
+            const hitMesh = intersects[0].object;
+            const hitRobot = robotArm.isRobotArmMesh(hitMesh);
+
+            // Toggle robot arm selection
+            robotArm.selectRobotArm(hitRobot && !robotArm.getIsRobotSelected());
+
             PubSub.default.pub("executeCommand", "robot.controlPanel" as CommandKeys);
+        } else {
+            // Click on empty space deselects
+            robotArm.selectRobotArm(false);
         }
     };
 
@@ -151,6 +210,10 @@ export class ImportRobotCommand implements ICommand {
             await robotArm.loadModelFromFile(file);
             robotArm.setOnSceneChanged(() => ctx.view.update());
             registerRobotArm(ctx.document, robotArm);
+
+            // Extract Robot_SA122000H meshes and add as Chili3D MeshNodes
+            // so they are natively selectable (like STEP imports)
+            addRobotArmToDocument(application, robotArm);
 
             // Set up click detection on the robot
             setupClickDetection(ctx.view, robotArm, ctx.document.id);

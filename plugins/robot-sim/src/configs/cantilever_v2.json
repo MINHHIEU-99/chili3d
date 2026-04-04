@@ -1,0 +1,80 @@
+{
+    "modelId": "cantilever_v2",
+    "displayName": "9-Axis Cantilever V2",
+    "transform": {
+        "scale": 1000,
+        "yUpToZUp": true
+    },
+    "joints": [
+        {
+            "name": "X_AXIS",
+            "axis": "X",
+            "type": "linear",
+            "min": -19200,
+            "max": 150,
+            "linkedVisualNodes": ["X_Axis"]
+        },
+        {
+            "name": "Y_AXIS",
+            "axis": "Z",
+            "type": "linear",
+            "min": -330,
+            "max": 2000,
+            "linkedVisualNodes": ["Y_Axis"]
+        },
+        {
+            "name": "Z_AXIS",
+            "axis": "Y",
+            "type": "linear",
+            "min": -1180,
+            "max": 0,
+            "linkedVisualNodes": ["Z_Axis"]
+        },
+        {
+            "name": "Kin_J1",
+            "axis": "Z",
+            "type": "rotational",
+            "min": -165,
+            "max": 165,
+            "linkedVisualNodes": ["J1"]
+        },
+        {
+            "name": "Kin_J2",
+            "axis": "Y",
+            "type": "rotational",
+            "min": -163,
+            "max": 80,
+            "linkedVisualNodes": ["J2"]
+        },
+        {
+            "name": "Kin_J3",
+            "axis": "Y",
+            "type": "rotational",
+            "min": -80,
+            "max": 80,
+            "linkedVisualNodes": ["J3"]
+        },
+        {
+            "name": "Kin_J4",
+            "axis": "X",
+            "type": "rotational",
+            "min": -190,
+            "max": 190,
+            "linkedVisualNodes": ["J4"]
+        },
+        {
+            "name": "Kin_J5",
+            "axis": "Y",
+            "type": "rotational",
+            "min": -130,
+            "max": 130
+        },
+        {
+            "name": "Kin_J6",
+            "axis": "X",
+            "type": "rotational",
+            "min": -220,
+            "max": 220
+        }
+    ]
+}
