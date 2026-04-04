@@ -13,13 +13,13 @@ import type {
 } from "./joint-config";
 import { type TrajectoryPoint, TrajectoryVisualizer } from "./trajectory-visualizer";
 
-export interface ExtractedMeshData {
-    name: string;
-    position: Float32Array;
-    normal: Float32Array;
-    index: Uint32Array;
-    color: number;
-}
+// export interface ExtractedMeshData {
+//     name: string;
+//     position: Float32Array;
+//     normal: Float32Array;
+//     index: Uint32Array;
+//     color: number;
+// }
 
 export class RobotArm {
     private model: THREE.Group | null = null;
@@ -49,7 +49,7 @@ export class RobotArm {
     private currentTrajectoryFrameId: number = 0;
     private modelContainer: THREE.Group | null = null;
     private tcpGizmo: THREE.AxesHelper | null = null;
-    // private gridHelper: THREE.GridHelper | null = null;
+    private groundGrid: THREE.Group | null = null;
     private robotSubtree: THREE.Object3D | null = null;
     private isRobotSelected = false;
     private savedMaterials: Map<THREE.Mesh, THREE.Material | THREE.Material[]> = new Map();
@@ -92,12 +92,18 @@ export class RobotArm {
         //             uvs: !!geo.attributes.uv,
         //             indices: geo.index ? geo.index.count : 0,
         //             boundingBox: geo.boundingBox
-        //                 ? { min: geo.boundingBox.min.toArray(), max: geo.boundingBox.max.toArray() }
+        //                 ? {
+        //                       min: geo.boundingBox.min.toArray(),
+        //                       max: geo.boundingBox.max.toArray(),
+        //                   }
         //                 : null,
         //         };
         //         const mat = obj.material;
         //         if (Array.isArray(mat)) {
-        //             info.materials = mat.map((m) => ({ type: m.type, name: m.name }));
+        //             info.materials = mat.map((m) => ({
+        //                 type: m.type,
+        //                 name: m.name,
+        //             }));
         //         } else {
         //             info.material = { type: mat.type, name: mat.name };
         //         }
@@ -113,17 +119,22 @@ export class RobotArm {
         //     animations: gltf.animations.map((a) => ({
         //         name: a.name,
         //         duration: a.duration,
-        //         tracks: a.tracks.map((t) => ({ name: t.name, type: t.constructor.name })),
+        //         tracks: a.tracks.map((t) => ({
+        //             name: t.name,
+        //             type: t.constructor.name,
+        //         })),
         //     })),
         //     cameras: gltf.cameras.map((c) => ({ type: c.type, name: c.name })),
         //     userData: gltf.userData,
         //     scene: buildHierarchy(gltf.scene),
         // };
 
-        // const blob = new Blob([JSON.stringify(gltfData, null, 2)], { type: "application/json" });
-        // const a = document.createElement("a");
+        // const blob = new Blob([JSON.stringify(gltfData, null, 2)], {
+        //     type: 'application/json',
+        // });
+        // const a = document.createElement('a');
         // a.href = URL.createObjectURL(blob);
-        // a.download = "gltf-structure.json";
+        // a.download = 'gltf-structure.json';
         // a.click();
         // URL.revokeObjectURL(a.href);
 
@@ -139,10 +150,23 @@ export class RobotArm {
         const scaleFactor = this.modelConfig?.transform.scale ?? 100;
         this.modelContainer.scale.setScalar(scaleFactor);
 
-        // Center the model at the origin by offsetting its bounding box center
-        const box = new THREE.Box3().setFromObject(gltf.scene);
-        const center = box.getCenter(new THREE.Vector3());
-        this.model.position.sub(center);
+        // Position the model so the robot arm base is at the world origin.
+        // If baseNode is configured, use that node's position; otherwise fall back to bounding box center.
+        let originOffset: THREE.Vector3;
+        if (this.modelConfig?.baseNode) {
+            let basePosition: THREE.Vector3 | null = null;
+            gltf.scene.traverse((child) => {
+                if (child.name === this.modelConfig!.baseNode) {
+                    child.updateWorldMatrix(true, false);
+                    basePosition = new THREE.Vector3().setFromMatrixPosition(child.matrixWorld);
+                }
+            });
+            originOffset =
+                basePosition ?? new THREE.Box3().setFromObject(gltf.scene).getCenter(new THREE.Vector3());
+        } else {
+            originOffset = new THREE.Box3().setFromObject(gltf.scene).getCenter(new THREE.Vector3());
+        }
+        this.model.position.sub(originOffset);
 
         this.modelContainer.add(this.model);
         this.scene.add(this.modelContainer);
@@ -537,29 +561,89 @@ export class RobotArm {
         return this.modelContainer;
     }
 
-    toggleAxisHelper(visible?: boolean): void {
-        const toggle = (obj: THREE.Object3D) => {
-            const helper = obj.children.find((child) => child instanceof THREE.AxesHelper);
-            if (helper) {
-                helper.visible = visible !== undefined ? visible : !helper.visible;
-            }
-        };
-        this.joints.forEach(toggle);
-        this.grippers.forEach(toggle);
+    toggleGroundGrid(visible?: boolean): void {
+        const show = visible !== undefined ? visible : !this.groundGrid?.visible;
 
-        // const show = visible !== undefined ? visible : !this.gridHelper?.visible;
-        // if (show && !this.gridHelper && this.modelContainer) {
-        //     const size = 5;
-        //     const divisions = 50;
-        //     this.gridHelper = new THREE.GridHelper(size, divisions, 0x888888, 0x444444);
-        //     // GridHelper is created in XZ plane (Y-up), rotate to XY plane (Z-up)
-        //     this.gridHelper.rotation.x = Math.PI / 2;
-        //     this.modelContainer.add(this.gridHelper);
-        // }
-        // if (this.gridHelper) {
-        //     this.gridHelper.visible = show;
-        // }
-        // this.onSceneChanged?.();
+        if (show && !this.groundGrid) {
+            this.groundGrid = this.createGroundGrid();
+            this.scene.add(this.groundGrid);
+        }
+        if (this.groundGrid) {
+            this.groundGrid.visible = show;
+        }
+        this.onSceneChanged?.();
+    }
+
+    private createGroundGrid(): THREE.Group {
+        const group = new THREE.Group();
+        const gridSize = 20000;
+        const divisions = 40;
+        const cellSize = gridSize / divisions;
+
+        // White ground plane
+        const planeGeo = new THREE.PlaneGeometry(gridSize, gridSize);
+        const planeMat = new THREE.MeshBasicMaterial({
+            color: 0xffffff,
+            side: THREE.DoubleSide,
+        });
+        const plane = new THREE.Mesh(planeGeo, planeMat);
+        // Chili3D is Z-up, PlaneGeometry faces Z by default — no rotation needed
+        group.add(plane);
+
+        // Black grid lines
+        const vertices: number[] = [];
+        const half = gridSize / 2;
+        for (let i = 0; i <= divisions; i++) {
+            const pos = -half + i * cellSize;
+            // Lines along X
+            vertices.push(pos, -half, 0, pos, half, 0);
+            // Lines along Y
+            vertices.push(-half, pos, 0, half, pos, 0);
+        }
+        const lineGeo = new THREE.BufferGeometry();
+        lineGeo.setAttribute("position", new THREE.Float32BufferAttribute(vertices, 3));
+        const lineMat = new THREE.LineBasicMaterial({ color: 0x000000 });
+        const lines = new THREE.LineSegments(lineGeo, lineMat);
+        lines.position.z = 0.5; // Slightly above the plane to avoid z-fighting
+        group.add(lines);
+
+        // Origin axes helper (visible above the ground plane)
+        const axesSize = 200;
+        const axes = new THREE.AxesHelper(axesSize);
+        axes.position.z = 1; // Above the plane and grid lines
+        group.add(axes);
+
+        // Origin label "(0, 0, 0)"
+        const originLabel = this.createTextSprite("(0, 0, 0)", 80);
+        originLabel.position.set(0, 0, 2);
+        group.add(originLabel);
+
+        return group;
+    }
+
+    private createTextSprite(text: string, size: number): THREE.Sprite {
+        const canvas = document.createElement("canvas");
+        const ctx = canvas.getContext("2d")!;
+        const fontSize = 64;
+        ctx.font = `bold ${fontSize}px Arial`;
+        const metrics = ctx.measureText(text);
+        canvas.width = Math.ceil(metrics.width) + 16;
+        canvas.height = fontSize + 16;
+        // Redraw after resizing canvas (resize clears it)
+        ctx.font = `bold ${fontSize}px Arial`;
+        ctx.fillStyle = "#000000";
+        ctx.textBaseline = "middle";
+        ctx.fillText(text, 8, canvas.height / 2);
+
+        const texture = new THREE.CanvasTexture(canvas);
+        const mat = new THREE.SpriteMaterial({
+            map: texture,
+            depthTest: false,
+        });
+        const sprite = new THREE.Sprite(mat);
+        const aspect = canvas.width / canvas.height;
+        sprite.scale.set(size * aspect, size, 1);
+        return sprite;
     }
 
     reset0(options?: { onUpdate?: (config: JointConfig) => void; onComplete?: () => void }): void {
@@ -894,95 +978,97 @@ export class RobotArm {
      * Extract mesh data from Robot_SA122000H subtree for creating Chili3D MeshNodes.
      * Bakes world transforms into vertex positions/normals so nodes can use identity transform.
      */
-    extractRobotArmMeshes(): ExtractedMeshData[] {
-        if (!this.robotSubtree || !this.modelContainer) return [];
+    // extractRobotArmMeshes(): ExtractedMeshData[] {
+    //     if (!this.robotSubtree || !this.modelContainer) return [];
 
-        const results: ExtractedMeshData[] = [];
-        const normalMatrix = new THREE.Matrix3();
+    //     const results: ExtractedMeshData[] = [];
+    //     const normalMatrix = new THREE.Matrix3();
 
-        this.robotSubtree.traverse((child) => {
-            if (!(child instanceof THREE.Mesh)) return;
+    //     this.robotSubtree.traverse((child) => {
+    //         if (!(child instanceof THREE.Mesh)) return;
 
-            const geo = child.geometry as THREE.BufferGeometry;
-            const posAttr = geo.attributes.position;
-            const normAttr = geo.attributes.normal;
-            if (!posAttr) return;
+    //         const geo = child.geometry as THREE.BufferGeometry;
+    //         const posAttr = geo.attributes.position;
+    //         const normAttr = geo.attributes.normal;
+    //         if (!posAttr) return;
 
-            // Compute world matrix including modelContainer's scale and rotation
-            child.updateWorldMatrix(true, false);
-            const worldMatrix = child.matrixWorld.clone();
-            normalMatrix.getNormalMatrix(worldMatrix);
+    //         // Compute world matrix including modelContainer's scale and rotation
+    //         child.updateWorldMatrix(true, false);
+    //         const worldMatrix = child.matrixWorld.clone();
+    //         normalMatrix.getNormalMatrix(worldMatrix);
 
-            // Extract and transform positions
-            const vertexCount = posAttr.count;
-            const position = new Float32Array(vertexCount * 3);
-            const tempVec = new THREE.Vector3();
-            for (let i = 0; i < vertexCount; i++) {
-                tempVec.fromBufferAttribute(posAttr, i);
-                tempVec.applyMatrix4(worldMatrix);
-                position[i * 3] = tempVec.x;
-                position[i * 3 + 1] = tempVec.y;
-                position[i * 3 + 2] = tempVec.z;
-            }
+    //         // Extract and transform positions
+    //         const vertexCount = posAttr.count;
+    //         const position = new Float32Array(vertexCount * 3);
+    //         const tempVec = new THREE.Vector3();
+    //         for (let i = 0; i < vertexCount; i++) {
+    //             tempVec.fromBufferAttribute(posAttr, i);
+    //             tempVec.applyMatrix4(worldMatrix);
+    //             position[i * 3] = tempVec.x;
+    //             position[i * 3 + 1] = tempVec.y;
+    //             position[i * 3 + 2] = tempVec.z;
+    //         }
 
-            // Extract and transform normals
-            const normal = new Float32Array(vertexCount * 3);
-            if (normAttr) {
-                const tempNorm = new THREE.Vector3();
-                for (let i = 0; i < vertexCount; i++) {
-                    tempNorm.fromBufferAttribute(normAttr, i);
-                    tempNorm.applyMatrix3(normalMatrix).normalize();
-                    normal[i * 3] = tempNorm.x;
-                    normal[i * 3 + 1] = tempNorm.y;
-                    normal[i * 3 + 2] = tempNorm.z;
-                }
-            }
+    //         // Extract and transform normals
+    //         const normal = new Float32Array(vertexCount * 3);
+    //         if (normAttr) {
+    //             const tempNorm = new THREE.Vector3();
+    //             for (let i = 0; i < vertexCount; i++) {
+    //                 tempNorm.fromBufferAttribute(normAttr, i);
+    //                 tempNorm.applyMatrix3(normalMatrix).normalize();
+    //                 normal[i * 3] = tempNorm.x;
+    //                 normal[i * 3 + 1] = tempNorm.y;
+    //                 normal[i * 3 + 2] = tempNorm.z;
+    //             }
+    //         }
 
-            // Extract indices
-            let index: Uint32Array;
-            if (geo.index) {
-                index = new Uint32Array(geo.index.array);
-            } else {
-                index = new Uint32Array(vertexCount);
-                for (let i = 0; i < vertexCount; i++) index[i] = i;
-            }
+    //         // Extract indices
+    //         let index: Uint32Array;
+    //         if (geo.index) {
+    //             index = new Uint32Array(geo.index.array);
+    //         } else {
+    //             index = new Uint32Array(vertexCount);
+    //             for (let i = 0; i < vertexCount; i++) index[i] = i;
+    //         }
 
-            // Extract color from material
-            let color = 0xff8c00; // Default orange
-            const mat = Array.isArray(child.material) ? child.material[0] : child.material;
-            if (mat instanceof THREE.MeshStandardMaterial && mat.color) {
-                color = mat.color.getHex();
-            }
+    //         // Extract color from material
+    //         let color = 0xff8c00; // Default orange
+    //         const mat = Array.isArray(child.material)
+    //             ? child.material[0]
+    //             : child.material;
+    //         if (mat instanceof THREE.MeshStandardMaterial && mat.color) {
+    //             color = mat.color.getHex();
+    //         }
 
-            results.push({
-                name: child.name || `mesh_${results.length}`,
-                position,
-                normal,
-                index,
-                color,
-            });
-        });
+    //         results.push({
+    //             name: child.name || `mesh_${results.length}`,
+    //             position,
+    //             normal,
+    //             index,
+    //             color,
+    //         });
+    //     });
 
-        return results;
-    }
+    //     return results;
+    // }
 
-    /** Hide the original Robot_SA122000H meshes so only the MeshNode version renders */
-    hideRobotArmMeshes(): void {
-        this.robotSubtree?.traverse((child) => {
-            if (child instanceof THREE.Mesh) {
-                child.visible = false;
-            }
-        });
-    }
+    // /** Hide the original Robot_SA122000H meshes so only the MeshNode version renders */
+    // hideRobotArmMeshes(): void {
+    //     this.robotSubtree?.traverse((child) => {
+    //         if (child instanceof THREE.Mesh) {
+    //             child.visible = false;
+    //         }
+    //     });
+    // }
 
     /** Show the original Robot_SA122000H meshes */
-    showRobotArmMeshes(): void {
-        this.robotSubtree?.traverse((child) => {
-            if (child instanceof THREE.Mesh) {
-                child.visible = true;
-            }
-        });
-    }
+    // showRobotArmMeshes(): void {
+    //     this.robotSubtree?.traverse((child) => {
+    //         if (child instanceof THREE.Mesh) {
+    //             child.visible = true;
+    //         }
+    //     });
+    // }
 
     dispose(): void {
         this.stopAnimation();
@@ -994,10 +1080,20 @@ export class RobotArm {
             this.tcpGizmo.dispose();
             this.tcpGizmo = null;
         }
-        // if (this.gridHelper) {
-        //     this.gridHelper.dispose();
-        //     this.gridHelper = null;
-        // }
+        if (this.groundGrid) {
+            this.scene.remove(this.groundGrid);
+            this.groundGrid.traverse((child) => {
+                if (child instanceof THREE.Mesh || child instanceof THREE.LineSegments) {
+                    child.geometry.dispose();
+                    if (Array.isArray(child.material)) {
+                        for (const m of child.material) m.dispose();
+                    } else {
+                        child.material.dispose();
+                    }
+                }
+            });
+            this.groundGrid = null;
+        }
 
         if (this.directionalLight) {
             this.scene.remove(this.directionalLight);

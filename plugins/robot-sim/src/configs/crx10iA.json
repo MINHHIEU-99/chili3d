@@ -1,0 +1,59 @@
+{
+    "modelId": "crx10iA",
+    "displayName": "CRX-10iA",
+    "baseNode": "J1_Kin",
+    "transform": {
+        "scale": 1000,
+        "yUpToZUp": true
+    },
+    "joints": [
+        {
+            "name": "J1_Kin",
+            "axis": "Z",
+            "type": "rotational",
+            "min": -190,
+            "max": 190,
+            "linkedVisualNodes": ["CRX-10iA_Axis1"]
+        },
+        {
+            "name": "J2_Kin",
+            "axis": "Y",
+            "type": "rotational",
+            "min": -180,
+            "max": 180,
+            "linkedVisualNodes": ["CRX-10iA_Axis2"]
+        },
+        {
+            "name": "J3_Kin",
+            "axis": "Y",
+            "type": "rotational",
+            "min": -195,
+            "max": 375,
+            "linkedVisualNodes": ["CRX-10iA_Axis3"]
+        },
+        {
+            "name": "J4_Kin",
+            "axis": "X",
+            "type": "rotational",
+            "min": -190,
+            "max": 190,
+            "linkedVisualNodes": ["CRX-10iA_Axis4"]
+        },
+        {
+            "name": "J5_Kin",
+            "axis": "Y",
+            "type": "rotational",
+            "min": -180,
+            "max": 180,
+            "linkedVisualNodes": ["CRX-10iA_Axis5"]
+        },
+        {
+            "name": "J6_Kin",
+            "axis": "X",
+            "type": "rotational",
+            "min": -190,
+            "max": 190,
+            "linkedVisualNodes": ["CRX-10iA_Axis6_WithConnectors"]
+        }
+    ]
+}

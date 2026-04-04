@@ -1,6 +1,7 @@
 {
     "modelId": "cantilever_v2",
     "displayName": "9-Axis Cantilever V2",
+    "baseNode": "Robot_SA122000H",
     "transform": {
         "scale": 1000,
         "yUpToZUp": true

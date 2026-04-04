@@ -21,6 +21,8 @@ export interface RobotModelConfig {
     modelId: string;
     displayName: string;
     kinematicRoot?: string;
+    /** Node whose position becomes the world origin (robot arm base) */
+    baseNode?: string;
     transform: {
         scale: number;
         yUpToZUp: boolean;

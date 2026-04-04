@@ -411,10 +411,10 @@ export class RobotControlPanel {
             checked: false,
         }) as HTMLInputElement;
         checkbox.addEventListener("change", () => {
-            this.robotArm.toggleAxisHelper(checkbox.checked);
+            this.robotArm.toggleGroundGrid(checkbox.checked);
         });
 
-        return div({ className: style.checkboxRow }, checkbox, label({ textContent: "Axes" }));
+        return div({ className: style.checkboxRow }, checkbox, label({ textContent: "Ground Grid" }));
     }
 
     private createJointSlider(config: JointConfig, isGripper: boolean): HTMLElement {

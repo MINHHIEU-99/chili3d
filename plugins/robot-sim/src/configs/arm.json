@@ -1,6 +1,7 @@
 {
     "modelId": "arm",
     "displayName": "Robotic Arm",
+    "baseNode": "base1",
     "transform": {
         "scale": 100,
         "yUpToZUp": true
