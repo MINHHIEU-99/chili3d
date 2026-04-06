@@ -5,7 +5,7 @@
     "main": "dist/extension.js",
     "css": "dist/extension.css",
     "author": {
-        "name": "Chili3D Team"
+        "name": "AlphaECC Team"
     },
     "engines": {
         "chili3d": ">=0.6"
