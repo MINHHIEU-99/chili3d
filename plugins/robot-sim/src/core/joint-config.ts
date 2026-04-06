@@ -23,6 +23,8 @@ export interface RobotModelConfig {
     kinematicRoot?: string;
     /** Node whose position becomes the world origin (robot arm base) */
     baseNode?: string;
+    /** Name of the TCP (Tool Center Point) node in the GLTF scene graph */
+    tcpNode?: string;
     transform: {
         scale: number;
         yUpToZUp: boolean;

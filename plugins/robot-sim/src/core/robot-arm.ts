@@ -528,6 +528,85 @@ export class RobotArm {
         return this.modelContainer;
     }
 
+    getScene(): THREE.Scene {
+        return this.scene;
+    }
+
+    getJointsMap(): Map<string, THREE.Object3D> {
+        return this.joints;
+    }
+
+    getJointConfigsRef(): JointConfig[] {
+        return this.jointConfigs;
+    }
+
+    getModelConfigRef(): RobotModelConfig | undefined {
+        return this.modelConfig;
+    }
+
+    /** Returns the TCP world position in Chili3D coordinates (after modelContainer transform) */
+    getTcpWorldPosition(): THREE.Vector3 | null {
+        if (!this.model) return null;
+
+        // Search for a dedicated TCP node
+        let tcpNode: THREE.Object3D | null = null;
+        const searchNames = ["TCP", "gripper_base"];
+        for (const name of searchNames) {
+            this.model.traverse((child) => {
+                if (!tcpNode && child.name === name) {
+                    tcpNode = child;
+                }
+            });
+            if (tcpNode) break;
+        }
+
+        // Fallback: use the last joint (or its first child) as TCP
+        if (!tcpNode) {
+            const jointNames = this.jointConfigs.map((c) => c.name);
+            if (jointNames.length > 0) {
+                const lastJointName = jointNames[jointNames.length - 1];
+                const lastJoint = this.joints.get(lastJointName);
+                if (lastJoint) {
+                    tcpNode = lastJoint.children[0] ?? lastJoint;
+                }
+            }
+        }
+
+        if (!tcpNode) return null;
+        this.modelContainer?.updateMatrixWorld(true);
+        return new THREE.Vector3().setFromMatrixPosition(tcpNode.matrixWorld);
+    }
+
+    /** Sets a joint angle without triggering scene update or mesh sync callbacks.
+     *  Used by IK solver to batch-update multiple joints before a single sync.
+     */
+    setJointAngleSilent(jointName: string, angle: number): void {
+        const joint = this.joints.get(jointName);
+        const config = this.jointConfigs.find((c) => c.name === jointName);
+        if (!joint || !config) return;
+
+        const clampedAngle = Math.max(config.minAngle, Math.min(config.maxAngle, angle));
+        config.currentAngle = clampedAngle;
+
+        const axisKey = config.axis.toLowerCase() as "x" | "y" | "z";
+        if (config.type === "linear") {
+            const defaultPos = this.jointDefaultPositions.get(jointName);
+            if (defaultPos) {
+                const scaleFactor = this.modelConfig?.transform.scale ?? 1;
+                joint.position[axisKey] = defaultPos[axisKey] + clampedAngle / scaleFactor;
+            }
+        } else {
+            const rad = THREE.MathUtils.degToRad(clampedAngle);
+            joint.rotation[axisKey as keyof THREE.Euler] = rad as any;
+        }
+    }
+
+    /** Triggers mesh sync and scene update after batch joint changes (e.g. from IK solver) */
+    notifyJointsChanged(): void {
+        this.syncMeshNodeTransforms();
+        this.onSceneChanged?.();
+    }
+
     toggleGroundGrid(visible?: boolean): void {
         const show = visible !== undefined ? visible : !this.groundGrid?.visible;
 

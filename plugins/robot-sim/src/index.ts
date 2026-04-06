@@ -4,9 +4,11 @@
 import type { CommandKeys, Plugin } from "@chili3d/core";
 import { ImportRobotCommand } from "./commands/import-robot";
 import { OpenControlPanelCommand } from "./commands/open-control-panel";
+import { RobotMoveCommand } from "./commands/robot-move";
+import { RobotRotateCommand } from "./commands/robot-rotate";
 
 const RobotSimPlugin: Plugin = {
-    commands: [ImportRobotCommand, OpenControlPanelCommand],
+    commands: [ImportRobotCommand, OpenControlPanelCommand, RobotMoveCommand, RobotRotateCommand],
     ribbons: [
         {
             tabName: "ribbon.tab.tools",
