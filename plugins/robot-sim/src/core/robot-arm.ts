@@ -13,12 +13,25 @@ import type {
 } from "./joint-config";
 import { type TrajectoryPoint, TrajectoryVisualizer } from "./trajectory-visualizer";
 
-// export interface ExtractedMeshData {
-//     name: string;
+export interface ExtractedMeshData {
+    name: string;
+    position: Float32Array;
+    normal: Float32Array;
+    index: Uint32Array;
+    color: number;
+    /** Column-major 4x4 world matrix at extraction time */
+    worldMatrix: number[];
+    /** Reference to the original GLTF mesh for transform sync */
+    sourceMesh: THREE.Mesh;
+}
+
+// export interface MergedMeshData {
 //     position: Float32Array;
 //     normal: Float32Array;
 //     index: Uint32Array;
-//     color: number;
+//     groups: { start: number; count: number; materialIndex: number }[];
+//     /** Unique colors ordered by materialIndex */
+//     colors: number[];
 // }
 
 export class RobotArm {
@@ -28,7 +41,6 @@ export class RobotArm {
     private jointNames: string[] = [];
     private grippers: Map<string, THREE.Object3D> = new Map();
     private gripperConfigs: JointConfig[] = [];
-    private gripperNames: string[] = [];
     private allComponentsConfigs: JointConfig[] = [];
     private jointDefaultPositions: Map<string, THREE.Vector3> = new Map();
     private loader: GLTFLoader;
@@ -50,11 +62,17 @@ export class RobotArm {
     private modelContainer: THREE.Group | null = null;
     private tcpGizmo: THREE.AxesHelper | null = null;
     private groundGrid: THREE.Group | null = null;
-    private robotSubtree: THREE.Object3D | null = null;
-    private isRobotSelected = false;
-    private savedMaterials: Map<THREE.Mesh, THREE.Material | THREE.Material[]> = new Map();
     private directionalLight: THREE.DirectionalLight | null = null;
     private onSceneChanged: (() => void) | null = null;
+    private onMeshTransformsChanged: ((matrices: Map<THREE.Mesh, number[]>) => void) | null = null;
+    private trackedMeshes: THREE.Mesh[] = [];
+    private onJointChanged: (() => void) | null = null;
+    private mergedSubmeshInfo: {
+        sourceMesh: THREE.Mesh;
+        vertexOffset: number;
+        vertexCount: number;
+    }[] = [];
+    private mergedTotalVertexCount = 0;
 
     constructor(
         private scene: THREE.Scene,
@@ -64,12 +82,31 @@ export class RobotArm {
         this.trajectoryVisualizer = new TrajectoryVisualizer(scene);
         if (modelConfig) {
             this.jointNames = modelConfig.joints.map((j) => j.name);
-            this.gripperNames = (modelConfig.grippers ?? []).map((g) => g.name);
         }
     }
 
     setOnSceneChanged(callback: (() => void) | null): void {
         this.onSceneChanged = callback;
+    }
+
+    setOnMeshTransformsChanged(callback: ((matrices: Map<THREE.Mesh, number[]>) => void) | null): void {
+        this.onMeshTransformsChanged = callback;
+    }
+
+    // setOnJointChanged(callback: (() => void) | null): void {
+    //     this.onJointChanged = callback;
+    // }
+
+    /** Notify the consumer that joint transforms have changed */
+    private syncMeshNodeTransforms(): void {
+        if (!this.onMeshTransformsChanged || this.trackedMeshes.length === 0) return;
+        this.modelContainer?.updateMatrixWorld(true);
+        const matrices = new Map<THREE.Mesh, number[]>();
+        for (const mesh of this.trackedMeshes) {
+            matrices.set(mesh, mesh.matrixWorld.toArray());
+        }
+        this.onMeshTransformsChanged(matrices);
+        // this.onJointChanged?.();
     }
 
     async loadModelFromUrl(url: string): Promise<void> {
@@ -310,13 +347,6 @@ export class RobotArm {
             this.jointConfigs.map((c) => c.name),
         );
 
-        // Find the robot arm subtree for selection
-        this.model.traverse((child) => {
-            if (child.name === "Robot_SA122000H") {
-                this.robotSubtree = child;
-            }
-        });
-
         // Attach a visible axes gizmo to the TCP node (Z = torch direction)
         // Swap X and Y axes so the gizmo matches the expected orientation
         this.model.traverse((child) => {
@@ -330,71 +360,6 @@ export class RobotArm {
                 console.log("[RobotSim] TCP gizmo attached");
             }
         });
-    }
-
-    /** Returns all meshes in the robot model for raycasting */
-    getRaycastTargets(): THREE.Object3D[] {
-        const targets: THREE.Object3D[] = [];
-        this.modelContainer?.traverse((child) => {
-            if (child instanceof THREE.Mesh) {
-                targets.push(child);
-            }
-        });
-        return targets;
-    }
-
-    /** Returns meshes belonging to the Robot_SA122000H subtree */
-    getRobotArmTargets(): THREE.Object3D[] {
-        const targets: THREE.Object3D[] = [];
-        this.robotSubtree?.traverse((child) => {
-            if (child instanceof THREE.Mesh) {
-                targets.push(child);
-            }
-        });
-        return targets;
-    }
-
-    /** Check if a mesh belongs to the Robot_SA122000H subtree */
-    isRobotArmMesh(mesh: THREE.Object3D): boolean {
-        if (!this.robotSubtree) return false;
-        let current: THREE.Object3D | null = mesh;
-        while (current) {
-            if (current === this.robotSubtree) return true;
-            current = current.parent;
-        }
-        return false;
-    }
-
-    /** Toggle selection highlight on the robot arm */
-    selectRobotArm(selected: boolean): void {
-        if (this.isRobotSelected === selected) return;
-        this.isRobotSelected = selected;
-
-        if (!this.robotSubtree) return;
-
-        if (selected) {
-            this.robotSubtree.traverse((child) => {
-                if (child instanceof THREE.Mesh) {
-                    this.savedMaterials.set(child, child.material);
-                    const originalMat = Array.isArray(child.material) ? child.material[0] : child.material;
-                    const highlightMat = (originalMat as THREE.MeshStandardMaterial).clone();
-                    highlightMat.emissive = new THREE.Color(0x335599);
-                    highlightMat.emissiveIntensity = 0.4;
-                    child.material = highlightMat;
-                }
-            });
-        } else {
-            this.savedMaterials.forEach((mat, mesh) => {
-                mesh.material = mat;
-            });
-            this.savedMaterials.clear();
-        }
-
-        this.onSceneChanged?.();
-    }
-
-    getIsRobotSelected(): boolean {
-        return this.isRobotSelected;
     }
 
     setJointAngle(jointName: string, angle: number): void {
@@ -416,6 +381,7 @@ export class RobotArm {
             const rad = THREE.MathUtils.degToRad(clampedAngle);
             joint.rotation[axisKey as keyof THREE.Euler] = rad as any;
         }
+        this.syncMeshNodeTransforms();
         this.onSceneChanged?.();
     }
 
@@ -512,6 +478,7 @@ export class RobotArm {
             const rad = THREE.MathUtils.degToRad(clampedAngle);
             gripper.rotation[axisKey as keyof THREE.Euler] = rad as any;
         }
+        this.syncMeshNodeTransforms();
         this.onSceneChanged?.();
     }
 
@@ -975,100 +942,222 @@ export class RobotArm {
     }
 
     /**
-     * Extract mesh data from Robot_SA122000H subtree for creating Chili3D MeshNodes.
-     * Bakes world transforms into vertex positions/normals so nodes can use identity transform.
+     * Extracts local geometry and world matrix from each mesh in the robot model.
+     * Geometry stays in local space — the world matrix is provided separately
+     * so MeshNode transforms can be updated when joints move.
      */
-    // extractRobotArmMeshes(): ExtractedMeshData[] {
-    //     if (!this.robotSubtree || !this.modelContainer) return [];
+    extractRobotMeshData(): ExtractedMeshData[] {
+        if (!this.modelContainer) return [];
 
-    //     const results: ExtractedMeshData[] = [];
-    //     const normalMatrix = new THREE.Matrix3();
+        this.modelContainer.updateMatrixWorld(true);
+        const results: ExtractedMeshData[] = [];
 
-    //     this.robotSubtree.traverse((child) => {
+        this.modelContainer.traverse((child) => {
+            if (!(child instanceof THREE.Mesh)) return;
+
+            const geo = child.geometry as THREE.BufferGeometry;
+            const posAttr = geo.attributes.position;
+            if (!posAttr) return;
+
+            const position = new Float32Array(posAttr.array);
+            const normAttr = geo.attributes.normal;
+            const normal = normAttr ? new Float32Array(normAttr.array) : new Float32Array(posAttr.count * 3);
+
+            let index: Uint32Array;
+            if (geo.index) {
+                index = new Uint32Array(geo.index.array);
+            } else {
+                index = new Uint32Array(posAttr.count);
+                for (let i = 0; i < posAttr.count; i++) index[i] = i;
+            }
+
+            let color = 0xff8c00;
+            const mat = Array.isArray(child.material) ? child.material[0] : child.material;
+            if (mat instanceof THREE.MeshStandardMaterial && mat.color) {
+                color = mat.color.getHex();
+            }
+
+            results.push({
+                name: child.name || `mesh_${results.length}`,
+                position,
+                normal,
+                index,
+                color,
+                worldMatrix: child.matrixWorld.toArray(),
+                sourceMesh: child,
+            });
+        });
+
+        this.trackedMeshes = results.map((r) => r.sourceMesh);
+        return results;
+    }
+
+    /**
+     * Merges all GLTF meshes into a single geometry with world-baked vertices.
+     * Each unique color becomes a MeshGroup with its own materialIndex.
+     */
+    // extractMergedMeshData(): MergedMeshData | null {
+    //     if (!this.modelContainer) return null;
+    //     this.modelContainer.updateMatrixWorld(true);
+
+    //     const allPositions: number[] = [];
+    //     const allNormals: number[] = [];
+    //     const allIndices: number[] = [];
+    //     const groups: {
+    //         start: number;
+    //         count: number;
+    //         materialIndex: number;
+    //     }[] = [];
+    //     const colorToIndex = new Map<number, number>();
+    //     const colors: number[] = [];
+    //     const submeshInfo: {
+    //         sourceMesh: THREE.Mesh;
+    //         vertexOffset: number;
+    //         vertexCount: number;
+    //     }[] = [];
+
+    //     let vertexOffset = 0;
+    //     let indexOffset = 0;
+    //     const v = new THREE.Vector3();
+    //     const n = new THREE.Vector3();
+
+    //     this.modelContainer.traverse((child) => {
     //         if (!(child instanceof THREE.Mesh)) return;
-
     //         const geo = child.geometry as THREE.BufferGeometry;
     //         const posAttr = geo.attributes.position;
-    //         const normAttr = geo.attributes.normal;
     //         if (!posAttr) return;
 
-    //         // Compute world matrix including modelContainer's scale and rotation
-    //         child.updateWorldMatrix(true, false);
-    //         const worldMatrix = child.matrixWorld.clone();
-    //         normalMatrix.getNormalMatrix(worldMatrix);
-
-    //         // Extract and transform positions
     //         const vertexCount = posAttr.count;
-    //         const position = new Float32Array(vertexCount * 3);
-    //         const tempVec = new THREE.Vector3();
-    //         for (let i = 0; i < vertexCount; i++) {
-    //             tempVec.fromBufferAttribute(posAttr, i);
-    //             tempVec.applyMatrix4(worldMatrix);
-    //             position[i * 3] = tempVec.x;
-    //             position[i * 3 + 1] = tempVec.y;
-    //             position[i * 3 + 2] = tempVec.z;
-    //         }
 
-    //         // Extract and transform normals
-    //         const normal = new Float32Array(vertexCount * 3);
-    //         if (normAttr) {
-    //             const tempNorm = new THREE.Vector3();
-    //             for (let i = 0; i < vertexCount; i++) {
-    //                 tempNorm.fromBufferAttribute(normAttr, i);
-    //                 tempNorm.applyMatrix3(normalMatrix).normalize();
-    //                 normal[i * 3] = tempNorm.x;
-    //                 normal[i * 3 + 1] = tempNorm.y;
-    //                 normal[i * 3 + 2] = tempNorm.z;
-    //             }
-    //         }
-
-    //         // Extract indices
-    //         let index: Uint32Array;
-    //         if (geo.index) {
-    //             index = new Uint32Array(geo.index.array);
-    //         } else {
-    //             index = new Uint32Array(vertexCount);
-    //             for (let i = 0; i < vertexCount; i++) index[i] = i;
-    //         }
-
-    //         // Extract color from material
-    //         let color = 0xff8c00; // Default orange
+    //         // Determine color
+    //         let color = 0xff8c00;
     //         const mat = Array.isArray(child.material)
     //             ? child.material[0]
     //             : child.material;
     //         if (mat instanceof THREE.MeshStandardMaterial && mat.color) {
     //             color = mat.color.getHex();
     //         }
+    //         if (!colorToIndex.has(color)) {
+    //             colorToIndex.set(color, colors.length);
+    //             colors.push(color);
+    //         }
+    //         const materialIndex = colorToIndex.get(color)!;
 
-    //         results.push({
-    //             name: child.name || `mesh_${results.length}`,
-    //             position,
-    //             normal,
-    //             index,
-    //             color,
+    //         // Transform positions and normals by world matrix
+    //         const worldMatrix = child.matrixWorld;
+    //         const normalMatrix = new THREE.Matrix3().getNormalMatrix(
+    //             worldMatrix
+    //         );
+
+    //         for (let i = 0; i < vertexCount; i++) {
+    //             v.fromBufferAttribute(posAttr, i).applyMatrix4(worldMatrix);
+    //             allPositions.push(v.x, v.y, v.z);
+
+    //             const normAttr = geo.attributes.normal;
+    //             if (normAttr) {
+    //                 n.fromBufferAttribute(normAttr, i)
+    //                     .applyMatrix3(normalMatrix)
+    //                     .normalize();
+    //             } else {
+    //                 n.set(0, 0, 1);
+    //             }
+    //             allNormals.push(n.x, n.y, n.z);
+    //         }
+
+    //         // Indices
+    //         const indexStart = indexOffset;
+    //         if (geo.index) {
+    //             const idxArr = geo.index.array;
+    //             for (let i = 0; i < idxArr.length; i++) {
+    //                 allIndices.push(idxArr[i] + vertexOffset);
+    //             }
+    //             indexOffset += idxArr.length;
+    //         } else {
+    //             for (let i = 0; i < vertexCount; i++) {
+    //                 allIndices.push(i + vertexOffset);
+    //             }
+    //             indexOffset += vertexCount;
+    //         }
+
+    //         groups.push({
+    //             start: indexStart,
+    //             count: indexOffset - indexStart,
+    //             materialIndex,
     //         });
+    //         submeshInfo.push({ sourceMesh: child, vertexOffset, vertexCount });
+    //         vertexOffset += vertexCount;
     //     });
 
-    //     return results;
+    //     this.mergedSubmeshInfo = submeshInfo;
+    //     this.mergedTotalVertexCount = vertexOffset;
+
+    //     return {
+    //         position: new Float32Array(allPositions),
+    //         normal: new Float32Array(allNormals),
+    //         index: new Uint32Array(allIndices),
+    //         groups,
+    //         colors,
+    //     };
     // }
 
-    // /** Hide the original Robot_SA122000H meshes so only the MeshNode version renders */
-    // hideRobotArmMeshes(): void {
-    //     this.robotSubtree?.traverse((child) => {
-    //         if (child instanceof THREE.Mesh) {
-    //             child.visible = false;
+    /**
+     * Re-bakes vertex positions and normals from the current GLTF world matrices.
+     * Call this after joints change to update the merged mesh in-place.
+     */
+    // rebuildMergedPositions(): {
+    //     position: Float32Array;
+    //     normal: Float32Array;
+    // } | null {
+    //     if (this.mergedSubmeshInfo.length === 0) return null;
+    //     this.modelContainer?.updateMatrixWorld(true);
+
+    //     const position = new Float32Array(this.mergedTotalVertexCount * 3);
+    //     const normal = new Float32Array(this.mergedTotalVertexCount * 3);
+    //     const v = new THREE.Vector3();
+    //     const n = new THREE.Vector3();
+
+    //     for (const { sourceMesh, vertexOffset, vertexCount } of this
+    //         .mergedSubmeshInfo) {
+    //         const geo = sourceMesh.geometry as THREE.BufferGeometry;
+    //         const posAttr = geo.attributes.position;
+    //         const normAttr = geo.attributes.normal;
+    //         const worldMatrix = sourceMesh.matrixWorld;
+    //         const normalMatrix = new THREE.Matrix3().getNormalMatrix(
+    //             worldMatrix
+    //         );
+    //         const baseIdx = vertexOffset * 3;
+
+    //         for (let i = 0; i < vertexCount; i++) {
+    //             v.fromBufferAttribute(posAttr, i).applyMatrix4(worldMatrix);
+    //             const idx = baseIdx + i * 3;
+    //             position[idx] = v.x;
+    //             position[idx + 1] = v.y;
+    //             position[idx + 2] = v.z;
+
+    //             if (normAttr) {
+    //                 n.fromBufferAttribute(normAttr, i)
+    //                     .applyMatrix3(normalMatrix)
+    //                     .normalize();
+    //             } else {
+    //                 n.set(0, 0, 1);
+    //             }
+    //             normal[idx] = n.x;
+    //             normal[idx + 1] = n.y;
+    //             normal[idx + 2] = n.z;
     //         }
-    //     });
+    //     }
+
+    //     return { position, normal };
     // }
 
-    /** Show the original Robot_SA122000H meshes */
-    // showRobotArmMeshes(): void {
-    //     this.robotSubtree?.traverse((child) => {
-    //         if (child instanceof THREE.Mesh) {
-    //             child.visible = true;
-    //         }
-    //     });
-    // }
+    /** Hide the original GLTF meshes so only the Chili3D MeshNode versions render */
+    hideGltfMeshes(): void {
+        this.modelContainer?.traverse((child) => {
+            if (child instanceof THREE.Mesh) {
+                child.visible = false;
+            }
+        });
+    }
 
     dispose(): void {
         this.stopAnimation();
@@ -1123,8 +1212,8 @@ export class RobotArm {
         this.gripperConfigs = [];
         this.allComponentsConfigs = [];
         this.jointDefaultPositions.clear();
-        this.savedMaterials.clear();
-        this.robotSubtree = null;
-        this.isRobotSelected = false;
+        this.trackedMeshes = [];
+        // this.mergedSubmeshInfo = [];
+        // this.mergedTotalVertexCount = 0;
     }
 }
