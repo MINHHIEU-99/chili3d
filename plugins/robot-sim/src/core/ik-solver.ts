@@ -111,13 +111,14 @@ export class IKSolver {
 
                 const joint = chain.joints[i];
                 const config = joint.config;
+                const dir = config.direction ?? 1;
                 let newAngle: number;
 
                 if (config.type === "rotational") {
-                    newAngle = config.currentAngle + THREE.MathUtils.radToDeg(dq);
+                    newAngle = config.currentAngle + dir * THREE.MathUtils.radToDeg(dq);
                 } else {
                     // Linear: world-space displacement maps 1:1 to config units (mm)
-                    newAngle = config.currentAngle + dq;
+                    newAngle = config.currentAngle + dir * dq;
                 }
 
                 // Clamp to joint limits

@@ -21,6 +21,7 @@
             "type": "rotational",
             "min": -180,
             "max": 180,
+            "direction": -1,
             "linkedVisualNodes": ["CRX-10iA_Axis2"]
         },
         {

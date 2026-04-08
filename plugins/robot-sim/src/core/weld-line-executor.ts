@@ -20,6 +20,7 @@ export interface WeldLogEntry {
     time: string;
     label: "Start" | "End";
     pose: TcpPose;
+    flangePose?: TcpPose;
 }
 
 export interface WeldExecutionCallbacks {
@@ -209,6 +210,11 @@ export class WeldLineExecutor {
         this.speed = Math.max(1, speed);
     }
 
+    /** Returns the pre-computed waypoint positions for trajectory preview */
+    getWaypointPositions(): THREE.Vector3[] {
+        return this.waypoints.map((wp) => wp.position.clone());
+    }
+
     /** Returns progress values (0..1) for the weld start and end points */
     getMarkers(): { start: number; end: number } {
         return { start: this.startPointProgress, end: this.endPointProgress };
@@ -306,11 +312,13 @@ export class WeldLineExecutor {
         if (!this.loggedStart && this.progress >= this.startPointProgress) {
             this.loggedStart = true;
             const pose = this.robotArm.getTcpWorldPose();
+            const flangePose = this.robotArm.getJ6WorldPose();
             if (pose) {
                 this.callbacks.onLog({
                     time: new Date().toISOString(),
                     label: "Start",
                     pose,
+                    flangePose: flangePose ?? undefined,
                 });
             }
         }
@@ -318,11 +326,13 @@ export class WeldLineExecutor {
         if (!this.loggedEnd && this.progress >= this.endPointProgress) {
             this.loggedEnd = true;
             const pose = this.robotArm.getTcpWorldPose();
+            const flangePose = this.robotArm.getJ6WorldPose();
             if (pose) {
                 this.callbacks.onLog({
                     time: new Date().toISOString(),
                     label: "End",
                     pose,
+                    flangePose: flangePose ?? undefined,
                 });
             }
         }

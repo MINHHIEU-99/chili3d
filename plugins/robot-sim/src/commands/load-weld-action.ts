@@ -14,6 +14,17 @@ import {
 import type { WeldLineAction } from "../core/joint-config";
 import { getRobotArm } from "../core/robot-registry";
 
+/** Stores the last loaded weld action so late-created panels can pick it up. */
+let lastWeldAction: WeldLineAction | null = null;
+
+export function getLastWeldAction(): WeldLineAction | null {
+    return lastWeldAction;
+}
+
+export function clearLastWeldAction(): void {
+    lastWeldAction = null;
+}
+
 @command({
     key: "robot.loadWeldAction" as any,
     icon: {
@@ -72,7 +83,8 @@ export class LoadWeldActionCommand implements ICommand {
             },
         };
 
-        // Notify control panel that a weld action is ready (but don't execute yet)
+        // Store and notify control panel that a weld action is ready (but don't execute yet)
+        lastWeldAction = action;
         PubSub.default.pub("weldActionReady" as any, action);
         PubSub.default.pub("showToast", "robot.toast.weldLoaded" as I18nKeys);
     }

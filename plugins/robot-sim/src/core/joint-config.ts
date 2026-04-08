@@ -15,6 +15,8 @@ export interface JointConfig {
     maxAngle: number;
     defaultAngle: number;
     currentAngle: number;
+    /** Sign multiplier for the joint angle: 1 (default) or -1 to reverse direction */
+    direction?: 1 | -1;
 }
 
 export interface RobotModelConfig {
@@ -46,6 +48,8 @@ export interface RobotModelConfig {
         min: number;
         max: number;
         default?: number;
+        /** Sign multiplier: 1 (default) or -1 to reverse joint direction */
+        direction?: 1 | -1;
         /** Visual nodes to sync with this joint's transform */
         linkedVisualNodes?: string[];
     }>;

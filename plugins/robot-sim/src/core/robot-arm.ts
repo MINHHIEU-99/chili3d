@@ -181,8 +181,10 @@ export class RobotArm {
         // Chili3D uses Z-up (Object3D.DEFAULT_UP = 0,0,1), robot models are Y-up.
         this.modelContainer = new THREE.Group();
         if (this.modelConfig?.transform.yUpToZUp !== false) {
-            this.modelContainer.rotation.x = Math.PI / 2;
+            this.modelContainer.rotation.z = Math.PI;
+            this.modelContainer.rotation.x = -Math.PI / 2;
         }
+        // this.modelContainer.rotation.z = Math.PI;
 
         const scaleFactor = this.modelConfig?.transform.scale ?? 100;
         this.modelContainer.scale.setScalar(scaleFactor);
@@ -289,6 +291,7 @@ export class RobotArm {
                     maxAngle: jointDef.max,
                     defaultAngle: jointDef.default ?? currentValue,
                     currentAngle: currentValue,
+                    direction: jointDef.direction,
                 });
             }
 
@@ -370,15 +373,16 @@ export class RobotArm {
         const clampedAngle = Math.max(config.minAngle, Math.min(config.maxAngle, angle));
         config.currentAngle = clampedAngle;
 
+        const dir = config.direction ?? 1;
         const axisKey = config.axis.toLowerCase() as "x" | "y" | "z";
         if (config.type === "linear") {
             const defaultPos = this.jointDefaultPositions.get(jointName);
             if (defaultPos) {
                 const scaleFactor = this.modelConfig?.transform.scale ?? 1;
-                joint.position[axisKey] = defaultPos[axisKey] + clampedAngle / scaleFactor;
+                joint.position[axisKey] = defaultPos[axisKey] + (dir * clampedAngle) / scaleFactor;
             }
         } else {
-            const rad = THREE.MathUtils.degToRad(clampedAngle);
+            const rad = THREE.MathUtils.degToRad(dir * clampedAngle);
             joint.rotation[axisKey as keyof THREE.Euler] = rad as any;
         }
         this.syncMeshNodeTransforms();
@@ -582,8 +586,54 @@ export class RobotArm {
      * W = rotation around Z, P = rotation around Y, R = rotation around X.
      * Convention: intrinsic ZYX Euler angles (yaw-pitch-roll).
      */
-    getTcpWorldPose(): { x: number; y: number; z: number; w: number; p: number; r: number } | null {
-        if (!this.model) return null;
+    /**
+     * Computes a node's pose relative to the robot base (modelContainer).
+     * Position and orientation are in the robot's local coordinate frame.
+     */
+    private getNodePoseInBaseFrame(node: THREE.Object3D): {
+        x: number;
+        y: number;
+        z: number;
+        w: number;
+        p: number;
+        r: number;
+    } {
+        this.modelContainer?.updateMatrixWorld(true);
+
+        // Use the robot base (modelContainer) world position as origin,
+        // with scene-aligned axes (no rotation from container transforms).
+        const basePos = new THREE.Vector3().setFromMatrixPosition(this.modelContainer!.matrixWorld);
+
+        const nodePos = new THREE.Vector3().setFromMatrixPosition(node.matrixWorld);
+        const localPos = nodePos.sub(basePos);
+
+        // Orientation: use node's world quaternion directly (scene-aligned)
+        const nodeQuat = new THREE.Quaternion();
+        node.getWorldQuaternion(nodeQuat);
+        const euler = new THREE.Euler().setFromQuaternion(nodeQuat, "ZYX");
+
+        return {
+            x: localPos.x,
+            y: localPos.y,
+            z: localPos.z,
+            w: THREE.MathUtils.radToDeg(euler.z),
+            p: THREE.MathUtils.radToDeg(euler.y),
+            r: THREE.MathUtils.radToDeg(euler.x),
+        };
+    }
+
+    /**
+     * Returns the TCP pose relative to the robot base: position (x,y,z) and orientation as WPR (degrees).
+     */
+    getTcpWorldPose(): {
+        x: number;
+        y: number;
+        z: number;
+        w: number;
+        p: number;
+        r: number;
+    } | null {
+        if (!this.model || !this.modelContainer) return null;
 
         let tcpNode: THREE.Object3D | null = null;
         const searchNames = this.modelConfig?.tcpNode
@@ -610,22 +660,19 @@ export class RobotArm {
         }
 
         if (!tcpNode) return null;
-        this.modelContainer?.updateMatrixWorld(true);
+        return this.getNodePoseInBaseFrame(tcpNode);
+    }
 
-        const pos = new THREE.Vector3().setFromMatrixPosition(tcpNode.matrixWorld);
-        const quat = new THREE.Quaternion();
-        tcpNode.getWorldQuaternion(quat);
-        // ZYX intrinsic = 'ZYX' order in Three.js Euler
-        const euler = new THREE.Euler().setFromQuaternion(quat, "ZYX");
+    /**
+     * Returns the last joint (J6 / flange) pose relative to the robot base: position (x,y,z) and orientation as WPR (degrees).
+     */
+    getJ6WorldPose(): { x: number; y: number; z: number; w: number; p: number; r: number } | null {
+        if (this.jointConfigs.length === 0 || !this.modelContainer) return null;
+        const lastJointName = this.jointConfigs[this.jointConfigs.length - 1].name;
+        const j6 = this.joints.get(lastJointName);
+        if (!j6) return null;
 
-        return {
-            x: pos.x,
-            y: pos.y,
-            z: pos.z,
-            w: THREE.MathUtils.radToDeg(euler.z),
-            p: THREE.MathUtils.radToDeg(euler.y),
-            r: THREE.MathUtils.radToDeg(euler.x),
-        };
+        return this.getNodePoseInBaseFrame(j6);
     }
 
     /** Sets a joint angle without triggering scene update or mesh sync callbacks.
@@ -639,15 +686,16 @@ export class RobotArm {
         const clampedAngle = Math.max(config.minAngle, Math.min(config.maxAngle, angle));
         config.currentAngle = clampedAngle;
 
+        const dir = config.direction ?? 1;
         const axisKey = config.axis.toLowerCase() as "x" | "y" | "z";
         if (config.type === "linear") {
             const defaultPos = this.jointDefaultPositions.get(jointName);
             if (defaultPos) {
                 const scaleFactor = this.modelConfig?.transform.scale ?? 1;
-                joint.position[axisKey] = defaultPos[axisKey] + clampedAngle / scaleFactor;
+                joint.position[axisKey] = defaultPos[axisKey] + (dir * clampedAngle) / scaleFactor;
             }
         } else {
-            const rad = THREE.MathUtils.degToRad(clampedAngle);
+            const rad = THREE.MathUtils.degToRad(dir * clampedAngle);
             joint.rotation[axisKey as keyof THREE.Euler] = rad as any;
         }
     }

@@ -3,6 +3,8 @@
 
 import { PubSub } from "@chili3d/core";
 import { button, div, input, label, span } from "@chili3d/element";
+import * as THREE from "three";
+import { clearLastWeldAction, getLastWeldAction } from "../commands/load-weld-action";
 import type { JointConfig, WeldLineAction } from "../core/joint-config";
 import type { RobotArm } from "../core/robot-arm";
 import { type WebSocketConfig, WebSocketManager } from "../core/websocket-manager";
@@ -37,6 +39,7 @@ export class RobotControlPanel {
     private weldStartMarker: HTMLElement | null = null;
     private weldEndMarker: HTMLElement | null = null;
     private weldLogBody: HTMLTableSectionElement | null = null;
+    private weldLineMesh: THREE.Line | null = null;
 
     // WebSocket
     private wsManager: WebSocketManager | null = null;
@@ -72,6 +75,14 @@ export class RobotControlPanel {
         );
 
         this.startUpdateLoop();
+
+        // Pick up any weld action that was loaded before the panel was opened
+        const pending = getLastWeldAction();
+        if (pending) {
+            clearLastWeldAction();
+            this.loadWeldAction(pending);
+        }
+
         return container;
     }
 
@@ -543,7 +554,7 @@ export class RobotControlPanel {
 
         const thead = document.createElement("thead");
         const headerRow = document.createElement("tr");
-        for (const col of ["Time", "Point", "X", "Y", "Z", "W", "P", "R"]) {
+        for (const col of ["Time", "Point", "Frame", "X", "Y", "Z", "W", "P", "R"]) {
             const th = document.createElement("th");
             th.textContent = col;
             headerRow.appendChild(th);
@@ -562,26 +573,49 @@ export class RobotControlPanel {
     private addWeldLogRow(entry: WeldLogEntry): void {
         if (!this.weldLogBody) return;
 
-        const row = document.createElement("tr");
         const time = entry.time.split("T")[1]?.replace("Z", "") ?? entry.time;
+
+        // TCP row
+        const tcpRow = document.createElement("tr");
         const p = entry.pose;
-        const values = [
+        for (const val of [
             time,
             entry.label,
+            "TCP",
             p.x.toFixed(2),
             p.y.toFixed(2),
             p.z.toFixed(2),
             p.w.toFixed(2),
             p.p.toFixed(2),
             p.r.toFixed(2),
-        ];
-
-        for (const val of values) {
+        ]) {
             const td = document.createElement("td");
             td.textContent = val;
-            row.appendChild(td);
+            tcpRow.appendChild(td);
         }
-        this.weldLogBody.appendChild(row);
+        this.weldLogBody.appendChild(tcpRow);
+
+        // J6 (Flange) row
+        if (entry.flangePose) {
+            const j6Row = document.createElement("tr");
+            const f = entry.flangePose;
+            for (const val of [
+                time,
+                entry.label,
+                "J6",
+                f.x.toFixed(2),
+                f.y.toFixed(2),
+                f.z.toFixed(2),
+                f.w.toFixed(2),
+                f.p.toFixed(2),
+                f.r.toFixed(2),
+            ]) {
+                const td = document.createElement("td");
+                td.textContent = val;
+                j6Row.appendChild(td);
+            }
+            this.weldLogBody.appendChild(j6Row);
+        }
 
         // Auto-scroll to bottom
         const container = this.weldLogBody.closest(`.${style.logTableContainer}`);
@@ -592,7 +626,36 @@ export class RobotControlPanel {
         if (this.weldLogBody) this.weldLogBody.innerHTML = "";
     }
 
+    private createTrajectoryPreview(): void {
+        this.removeTrajectoryPreview();
+
+        const points = this.weldExecutor.getWaypointPositions();
+        if (points.length < 2) return;
+
+        const geometry = new THREE.BufferGeometry().setFromPoints(points);
+        const material = new THREE.LineDashedMaterial({
+            color: 0xffaa00,
+            dashSize: 8,
+            gapSize: 4,
+            linewidth: 1,
+        });
+        this.weldLineMesh = new THREE.Line(geometry, material);
+        this.weldLineMesh.computeLineDistances();
+        this.weldLineMesh.renderOrder = 998;
+        this.robotArm.getScene().add(this.weldLineMesh);
+    }
+
+    private removeTrajectoryPreview(): void {
+        if (this.weldLineMesh) {
+            this.weldLineMesh.geometry.dispose();
+            (this.weldLineMesh.material as THREE.Material).dispose();
+            this.robotArm.getScene().remove(this.weldLineMesh);
+            this.weldLineMesh = null;
+        }
+    }
+
     private loadWeldAction(action: WeldLineAction): void {
+        clearLastWeldAction();
         this.pendingWeldAction = action;
         this.clearWeldLog();
 
@@ -630,6 +693,7 @@ export class RobotControlPanel {
             if (this.weldProgressSlider) this.weldProgressSlider.value = "0";
             if (this.weldProgressLabel) this.weldProgressLabel.textContent = "0%";
             this.updateWeldMarkers();
+            this.createTrajectoryPreview();
         }
         this.updateWeldButtonStates();
     }
@@ -654,6 +718,7 @@ export class RobotControlPanel {
 
     private handleWeldStop(): void {
         this.weldExecutor.stop();
+        this.removeTrajectoryPreview();
         this.pendingWeldAction = null;
         if (this.weldProgressSlider) this.weldProgressSlider.value = "0";
         if (this.weldProgressLabel) this.weldProgressLabel.textContent = "0%";
@@ -983,6 +1048,7 @@ export class RobotControlPanel {
             this.updateAnimationId = null;
         }
         this.weldExecutor.stop();
+        this.removeTrajectoryPreview();
         if (this.weldActionCallback) {
             PubSub.default.remove("weldActionReady" as any, this.weldActionCallback as any);
             this.weldActionCallback = null;
