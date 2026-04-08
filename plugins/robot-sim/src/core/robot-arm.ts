@@ -577,6 +577,57 @@ export class RobotArm {
         return new THREE.Vector3().setFromMatrixPosition(tcpNode.matrixWorld);
     }
 
+    /**
+     * Returns the TCP world pose: position (x,y,z) and orientation as WPR (degrees).
+     * W = rotation around Z, P = rotation around Y, R = rotation around X.
+     * Convention: intrinsic ZYX Euler angles (yaw-pitch-roll).
+     */
+    getTcpWorldPose(): { x: number; y: number; z: number; w: number; p: number; r: number } | null {
+        if (!this.model) return null;
+
+        let tcpNode: THREE.Object3D | null = null;
+        const searchNames = this.modelConfig?.tcpNode
+            ? [this.modelConfig.tcpNode, "TCP", "gripper_base"]
+            : ["TCP", "gripper_base"];
+        for (const name of searchNames) {
+            this.model.traverse((child) => {
+                if (!tcpNode && child.name === name) {
+                    tcpNode = child;
+                }
+            });
+            if (tcpNode) break;
+        }
+
+        if (!tcpNode) {
+            const jointNames = this.jointConfigs.map((c) => c.name);
+            if (jointNames.length > 0) {
+                const lastJointName = jointNames[jointNames.length - 1];
+                const lastJoint = this.joints.get(lastJointName);
+                if (lastJoint) {
+                    tcpNode = lastJoint.children[0] ?? lastJoint;
+                }
+            }
+        }
+
+        if (!tcpNode) return null;
+        this.modelContainer?.updateMatrixWorld(true);
+
+        const pos = new THREE.Vector3().setFromMatrixPosition(tcpNode.matrixWorld);
+        const quat = new THREE.Quaternion();
+        tcpNode.getWorldQuaternion(quat);
+        // ZYX intrinsic = 'ZYX' order in Three.js Euler
+        const euler = new THREE.Euler().setFromQuaternion(quat, "ZYX");
+
+        return {
+            x: pos.x,
+            y: pos.y,
+            z: pos.z,
+            w: THREE.MathUtils.radToDeg(euler.z),
+            p: THREE.MathUtils.radToDeg(euler.y),
+            r: THREE.MathUtils.radToDeg(euler.x),
+        };
+    }
+
     /** Sets a joint angle without triggering scene update or mesh sync callbacks.
      *  Used by IK solver to batch-update multiple joints before a single sync.
      */

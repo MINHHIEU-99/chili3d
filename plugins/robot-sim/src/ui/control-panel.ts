@@ -1,10 +1,12 @@
 // Part of the Chili3d Project, under the AGPL-3.0 License.
 // See LICENSE file in the project root for full license information.
 
+import { PubSub } from "@chili3d/core";
 import { button, div, input, label, span } from "@chili3d/element";
-import type { JointConfig } from "../core/joint-config";
+import type { JointConfig, WeldLineAction } from "../core/joint-config";
 import type { RobotArm } from "../core/robot-arm";
 import { type WebSocketConfig, WebSocketManager } from "../core/websocket-manager";
+import { validateWeldLineAction, WeldLineExecutor, type WeldLogEntry } from "../core/weld-line-executor";
 import style from "../styles/robot-sim.module.css";
 
 export class RobotControlPanel {
@@ -22,6 +24,20 @@ export class RobotControlPanel {
     private isDraggingProgress = false;
     private updateAnimationId: number | null = null;
 
+    // Weld
+    private weldExecutor = new WeldLineExecutor();
+    private pendingWeldAction: WeldLineAction | null = null;
+    private weldProgressSlider: HTMLInputElement | null = null;
+    private weldProgressLabel: HTMLElement | null = null;
+    private weldStatusLabel: HTMLElement | null = null;
+    private weldPlayBtn: HTMLButtonElement | null = null;
+    private weldPauseBtn: HTMLButtonElement | null = null;
+    private weldStopBtn: HTMLButtonElement | null = null;
+    private isDraggingWeldProgress = false;
+    private weldStartMarker: HTMLElement | null = null;
+    private weldEndMarker: HTMLElement | null = null;
+    private weldLogBody: HTMLTableSectionElement | null = null;
+
     // WebSocket
     private wsManager: WebSocketManager | null = null;
     private wsStatusLabel: HTMLElement | null = null;
@@ -30,15 +46,23 @@ export class RobotControlPanel {
     private wsSeqStatusLabel: HTMLElement | null = null;
     private wsSeqFrameLabel: HTMLElement | null = null;
 
+    // PubSub subscription callback (kept for unsubscribe)
+    private weldActionCallback: ((action: WeldLineAction) => void) | null = null;
+
     constructor(private robotArm: RobotArm) {}
 
     render(): HTMLElement {
+        // Subscribe to weld action from the toolbar command
+        this.weldActionCallback = (action: WeldLineAction) => this.loadWeldAction(action);
+        PubSub.default.sub("weldActionReady" as any, this.weldActionCallback as any);
+
         const sections: (HTMLElement | null)[] = [
             this.createWebSocketSection(),
             this.createJointControlSection(),
             this.createGripperSection(),
             this.createResetSection(),
             this.createActionSection(),
+            this.createWeldActionSection(),
             this.createTrajectorySection(),
         ];
 
@@ -284,8 +308,9 @@ export class RobotControlPanel {
         return div({ className: style.buttonRow }, zeroBtn, pauseBtn);
     }
 
+    // ─── Keyframe Action Sequence Section ───
+
     private createActionSection(): HTMLElement {
-        // Action file upload
         const fileInput = input({
             type: "file",
             accept: ".json",
@@ -296,9 +321,15 @@ export class RobotControlPanel {
             const file = fileInput.files?.[0];
             if (!file) return;
             try {
-                await this.robotArm.loadActionSequenceFile(file);
+                const text = await file.text();
+                const json = JSON.parse(text);
+                if (validateWeldLineAction(json)) {
+                    this.loadWeldAction(json);
+                } else {
+                    await this.robotArm.loadActionSequenceFile(file);
+                }
             } catch {
-                console.error("Failed to load action sequence");
+                console.error("Failed to load action JSON");
             }
             fileInput.value = "";
         });
@@ -309,7 +340,7 @@ export class RobotControlPanel {
             onclick: () => fileInput.click(),
         }) as HTMLButtonElement;
 
-        // Playback controls
+        // Playback controls (keyframe sequence)
         this.playBtn = button({
             textContent: "Play",
             className: `${style.actionButton} ${style.playButton}`,
@@ -377,6 +408,301 @@ export class RobotControlPanel {
         );
     }
 
+    // ─── Weld Line Action Section ───
+
+    private createWeldActionSection(): HTMLElement {
+        this.weldStatusLabel = span({ textContent: "No weld loaded" });
+
+        this.weldPlayBtn = button({
+            textContent: "Play",
+            className: `${style.actionButton} ${style.playButton}`,
+            onclick: () => this.handleWeldPlay(),
+        }) as HTMLButtonElement;
+        this.weldPlayBtn.disabled = true;
+
+        this.weldPauseBtn = button({
+            textContent: "Pause",
+            className: style.actionButton,
+            onclick: () => this.handleWeldPause(),
+        }) as HTMLButtonElement;
+        this.weldPauseBtn.style.display = "none";
+
+        this.weldStopBtn = button({
+            textContent: "Stop",
+            className: `${style.actionButton} ${style.stopButton}`,
+            onclick: () => this.handleWeldStop(),
+        }) as HTMLButtonElement;
+        this.weldStopBtn.style.display = "none";
+
+        // Progress slider
+        this.weldProgressLabel = span({ textContent: "0%" });
+        this.weldProgressSlider = input({
+            type: "range",
+            min: "0",
+            max: "1",
+            step: "0.001",
+            value: "0",
+            className: style.slider,
+        }) as HTMLInputElement;
+
+        this.weldProgressSlider.addEventListener("mousedown", () => {
+            this.isDraggingWeldProgress = true;
+            // Pause while dragging so the user can scrub freely
+            if (this.weldExecutor.getState() === "playing") {
+                this.weldExecutor.pause();
+            }
+        });
+
+        this.weldProgressSlider.addEventListener("input", () => {
+            const progress = parseFloat(this.weldProgressSlider!.value);
+            this.weldExecutor.seekTo(progress);
+            this.weldProgressLabel!.textContent = `${Math.round(progress * 100)}%`;
+            this.refreshAllSliders();
+        });
+
+        this.weldProgressSlider.addEventListener("mouseup", () => {
+            this.isDraggingWeldProgress = false;
+        });
+
+        // Marker for weld start point
+        this.weldStartMarker = div({ className: `${style.progressMarker} ${style.markerStart}` });
+        this.weldStartMarker.appendChild(span({ textContent: "S", className: style.markerLabel }));
+        this.weldStartMarker.style.display = "none";
+        this.weldStartMarker.addEventListener("click", () => {
+            const markers = this.weldExecutor.getMarkers();
+            this.weldExecutor.seekTo(markers.start);
+            if (this.weldProgressSlider) this.weldProgressSlider.value = String(markers.start);
+            if (this.weldProgressLabel) {
+                this.weldProgressLabel.textContent = `${Math.round(markers.start * 100)}%`;
+            }
+            this.refreshAllSliders();
+        });
+
+        // Marker for weld end point
+        this.weldEndMarker = div({ className: `${style.progressMarker} ${style.markerEnd}` });
+        this.weldEndMarker.appendChild(span({ textContent: "E", className: style.markerLabel }));
+        this.weldEndMarker.style.display = "none";
+        this.weldEndMarker.addEventListener("click", () => {
+            const markers = this.weldExecutor.getMarkers();
+            this.weldExecutor.seekTo(markers.end);
+            if (this.weldProgressSlider) this.weldProgressSlider.value = String(markers.end);
+            if (this.weldProgressLabel) {
+                this.weldProgressLabel.textContent = `${Math.round(markers.end * 100)}%`;
+            }
+            this.refreshAllSliders();
+        });
+
+        const progressContainer = div(
+            { className: style.progressContainer },
+            this.weldProgressSlider,
+            this.weldStartMarker,
+            this.weldEndMarker,
+        );
+
+        // Speed slider
+        const speedValueLabel = span({ textContent: "50", className: style.sliderValue });
+        const speedSlider = input({
+            type: "range",
+            min: "5",
+            max: "500",
+            step: "5",
+            value: "50",
+            className: style.slider,
+        }) as HTMLInputElement;
+
+        speedSlider.addEventListener("input", () => {
+            const speed = parseFloat(speedSlider.value);
+            speedValueLabel.textContent = String(speed);
+            this.weldExecutor.setSpeed(speed);
+        });
+
+        return div(
+            { className: style.section },
+            div({ className: style.sectionHeader }, span({ textContent: "Weld Line" }), this.weldStatusLabel),
+            div({ className: style.buttonRow }, this.weldPlayBtn, this.weldPauseBtn, this.weldStopBtn),
+            div(
+                { className: style.sliderRow },
+                label({ textContent: "Progress" }),
+                progressContainer,
+                this.weldProgressLabel,
+            ),
+            div(
+                { className: style.sliderRow },
+                label({ textContent: "Speed", className: style.sliderLabel }),
+                speedSlider,
+                speedValueLabel,
+                span({ textContent: "u/s", className: style.sliderUnit }),
+            ),
+            this.createWeldLogTable(),
+        );
+    }
+
+    private createWeldLogTable(): HTMLElement {
+        const table = document.createElement("table");
+        table.className = style.logTable;
+
+        const thead = document.createElement("thead");
+        const headerRow = document.createElement("tr");
+        for (const col of ["Time", "Point", "X", "Y", "Z", "W", "P", "R"]) {
+            const th = document.createElement("th");
+            th.textContent = col;
+            headerRow.appendChild(th);
+        }
+        thead.appendChild(headerRow);
+        table.appendChild(thead);
+
+        this.weldLogBody = document.createElement("tbody");
+        table.appendChild(this.weldLogBody);
+
+        const container = div({ className: style.logTableContainer });
+        container.appendChild(table);
+        return container;
+    }
+
+    private addWeldLogRow(entry: WeldLogEntry): void {
+        if (!this.weldLogBody) return;
+
+        const row = document.createElement("tr");
+        const time = entry.time.split("T")[1]?.replace("Z", "") ?? entry.time;
+        const p = entry.pose;
+        const values = [
+            time,
+            entry.label,
+            p.x.toFixed(2),
+            p.y.toFixed(2),
+            p.z.toFixed(2),
+            p.w.toFixed(2),
+            p.p.toFixed(2),
+            p.r.toFixed(2),
+        ];
+
+        for (const val of values) {
+            const td = document.createElement("td");
+            td.textContent = val;
+            row.appendChild(td);
+        }
+        this.weldLogBody.appendChild(row);
+
+        // Auto-scroll to bottom
+        const container = this.weldLogBody.closest(`.${style.logTableContainer}`);
+        if (container) container.scrollTop = container.scrollHeight;
+    }
+
+    private clearWeldLog(): void {
+        if (this.weldLogBody) this.weldLogBody.innerHTML = "";
+    }
+
+    private loadWeldAction(action: WeldLineAction): void {
+        this.pendingWeldAction = action;
+        this.clearWeldLog();
+
+        const ok = this.weldExecutor.prepare(this.robotArm, action, {
+            onProgress: (progress) => {
+                if (!this.isDraggingWeldProgress) {
+                    if (this.weldProgressSlider) this.weldProgressSlider.value = String(progress);
+                    if (this.weldProgressLabel) {
+                        this.weldProgressLabel.textContent = `${Math.round(progress * 100)}%`;
+                    }
+                }
+                this.refreshAllSliders();
+            },
+            onComplete: () => {
+                this.updateWeldButtonStates();
+                this.refreshAllSliders();
+            },
+            onError: (error) => {
+                if (this.weldStatusLabel) this.weldStatusLabel.textContent = `Error: ${error}`;
+                this.updateWeldButtonStates();
+            },
+            onSceneUpdate: () => {
+                // handled by notifyJointsChanged
+            },
+            onStateChange: (state) => {
+                this.updateWeldButtonStates();
+            },
+            onLog: (entry) => {
+                this.addWeldLogRow(entry);
+            },
+        });
+
+        if (ok) {
+            if (this.weldStatusLabel) this.weldStatusLabel.textContent = "Ready";
+            if (this.weldProgressSlider) this.weldProgressSlider.value = "0";
+            if (this.weldProgressLabel) this.weldProgressLabel.textContent = "0%";
+            this.updateWeldMarkers();
+        }
+        this.updateWeldButtonStates();
+    }
+
+    private handleWeldPlay(): void {
+        const state = this.weldExecutor.getState();
+        if (state === "paused" || state === "completed") {
+            this.weldExecutor.play();
+        }
+        this.updateWeldButtonStates();
+    }
+
+    private handleWeldPause(): void {
+        const state = this.weldExecutor.getState();
+        if (state === "playing") {
+            this.weldExecutor.pause();
+        } else if (state === "paused") {
+            this.weldExecutor.play();
+        }
+        this.updateWeldButtonStates();
+    }
+
+    private handleWeldStop(): void {
+        this.weldExecutor.stop();
+        this.pendingWeldAction = null;
+        if (this.weldProgressSlider) this.weldProgressSlider.value = "0";
+        if (this.weldProgressLabel) this.weldProgressLabel.textContent = "0%";
+        if (this.weldStatusLabel) this.weldStatusLabel.textContent = "No weld loaded";
+        if (this.weldStartMarker) this.weldStartMarker.style.display = "none";
+        if (this.weldEndMarker) this.weldEndMarker.style.display = "none";
+        this.updateWeldButtonStates();
+    }
+
+    private updateWeldMarkers(): void {
+        const markers = this.weldExecutor.getMarkers();
+        if (this.weldStartMarker) {
+            this.weldStartMarker.style.display = "";
+            this.weldStartMarker.style.left = `${markers.start * 100}%`;
+        }
+        if (this.weldEndMarker) {
+            this.weldEndMarker.style.display = "";
+            this.weldEndMarker.style.left = `${markers.end * 100}%`;
+        }
+    }
+
+    private updateWeldButtonStates(): void {
+        const state = this.weldExecutor.getState();
+        const isPrepared = this.weldExecutor.isPrepared();
+
+        if (this.weldPlayBtn) {
+            this.weldPlayBtn.disabled = !isPrepared || state === "playing";
+            this.weldPlayBtn.style.display = state === "playing" ? "none" : "";
+        }
+        if (this.weldPauseBtn) {
+            this.weldPauseBtn.style.display = state === "playing" || state === "paused" ? "" : "none";
+            this.weldPauseBtn.textContent = state === "paused" ? "Resume" : "Pause";
+        }
+        if (this.weldStopBtn) {
+            this.weldStopBtn.style.display = isPrepared && state !== "idle" ? "" : "none";
+        }
+        if (this.weldStatusLabel) {
+            const labels: Record<string, string> = {
+                idle: "No weld loaded",
+                paused: "Paused",
+                playing: "Playing",
+                completed: "Completed",
+            };
+            this.weldStatusLabel.textContent = labels[state] ?? state;
+        }
+    }
+
+    // ─── Trajectory Section ───
+
     private createTrajectorySection(): HTMLElement {
         const visualizer = this.robotArm.getTrajectoryVisualizer();
         if (!visualizer) return div();
@@ -416,6 +742,8 @@ export class RobotControlPanel {
 
         return div({ className: style.checkboxRow }, checkbox, label({ textContent: "Ground Grid" }));
     }
+
+    // ─── Joint Sliders ───
 
     private createJointSlider(config: JointConfig, isGripper: boolean): HTMLElement {
         const unit = config.type === "linear" ? "mm" : "°";
@@ -515,6 +843,8 @@ export class RobotControlPanel {
         );
     }
 
+    // ─── Slider refresh ───
+
     private refreshAllSliders(): void {
         const jointConfigs = this.robotArm.getJointConfigs();
         const gripperConfigs = this.robotArm.getGripperConfigs();
@@ -544,6 +874,8 @@ export class RobotControlPanel {
             }
         });
     }
+
+    // ─── Keyframe sequence playback ───
 
     private async playAction(): Promise<void> {
         try {
@@ -633,6 +965,8 @@ export class RobotControlPanel {
         }
     }
 
+    // ─── Update loop ───
+
     private startUpdateLoop(): void {
         const update = () => {
             if (this.isPlaying) {
@@ -647,6 +981,11 @@ export class RobotControlPanel {
         if (this.updateAnimationId !== null) {
             cancelAnimationFrame(this.updateAnimationId);
             this.updateAnimationId = null;
+        }
+        this.weldExecutor.stop();
+        if (this.weldActionCallback) {
+            PubSub.default.remove("weldActionReady" as any, this.weldActionCallback as any);
+            this.weldActionCallback = null;
         }
         this.wsManager?.disconnect();
         this.wsManager = null;

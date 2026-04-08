@@ -130,10 +130,78 @@ export function createRobotDualGizmos(
     tcpControls.attach(tcpAnchor);
     ctx.scene.add(tcpControls.getHelper());
 
-    // Disable camera rotation while dragging either gizmo
+    // Disable camera rotation while dragging any gizmo
     const setViewEnabled = (enabled: boolean) => {
         ctx.visual.viewHandler.isEnabled = enabled;
     };
+
+    // --- Joint 6 gizmo (IK targeting the last joint) ---
+    const jointConfigs = robotArm.getJointConfigsRef();
+    const jointsMap = robotArm.getJointsMap();
+
+    let j6Controls: TransformControls | null = null;
+    let j6Anchor: THREE.Group | null = null;
+    let j6Chain: ReturnType<typeof extractKinematicChain> = null;
+    const j6Solver = new IKSolver();
+
+    if (jointConfigs.length >= 2) {
+        const lastJointConfig = jointConfigs[jointConfigs.length - 1];
+        const lastJointObj = jointsMap.get(lastJointConfig.name);
+
+        if (lastJointObj) {
+            // Build partial chain: joints 0..N-2 solving toward joint N-1
+            const partialConfigs = jointConfigs.slice(0, -1);
+            j6Chain = extractKinematicChain(jointsMap, partialConfigs, model, lastJointConfig.name);
+
+            // If extractKinematicChain couldn't find the node by name, build manually
+            if (j6Chain && j6Chain.tcpNode !== lastJointObj) {
+                j6Chain = { joints: j6Chain.joints, tcpNode: lastJointObj };
+            }
+
+            lastJointObj.updateWorldMatrix(true, false);
+            const j6Pos = new THREE.Vector3().setFromMatrixPosition(lastJointObj.matrixWorld);
+
+            j6Anchor = new THREE.Group();
+            j6Anchor.position.copy(j6Pos);
+            ctx.scene.add(j6Anchor);
+
+            j6Controls = new TransformControls(ctx.camera, ctx.dom);
+            j6Controls.setMode("translate");
+            j6Controls.setSize(0.6);
+            j6Controls.attach(j6Anchor);
+            ctx.scene.add(j6Controls.getHelper());
+
+            j6Controls.addEventListener("dragging-changed", (event: any) => {
+                setViewEnabled(!event.value);
+                if (event.value) {
+                    lastJointObj.updateWorldMatrix(true, false);
+                    const currentJ6 = new THREE.Vector3().setFromMatrixPosition(lastJointObj.matrixWorld);
+                    j6Anchor!.position.copy(currentJ6);
+                    j6Solver.resetDamping();
+                }
+            });
+
+            j6Controls.addEventListener("change", () => {
+                if (!j6Chain) return;
+                const target = new THREE.Vector3();
+                j6Anchor!.getWorldPosition(target);
+
+                j6Solver.solve(j6Chain, target, (name, angle) => {
+                    robotArm.setJointAngleSilent(name, angle);
+                });
+                robotArm.notifyJointsChanged();
+
+                // Sync TCP gizmo anchor after J6 IK
+                const newTcp = robotArm.getTcpWorldPosition();
+                if (newTcp) {
+                    tcpAnchor.position.copy(newTcp);
+                }
+
+                PubSub.default.pub("robotJointsChanged" as any);
+                ctx.view.update();
+            });
+        }
+    }
 
     baseControls.addEventListener("dragging-changed", (event: any) => {
         setViewEnabled(!event.value);
@@ -179,6 +247,15 @@ export function createRobotDualGizmos(
         });
         robotArm.notifyJointsChanged();
 
+        // Sync J6 gizmo anchor after TCP IK
+        if (j6Anchor && jointConfigs.length >= 2) {
+            const lastJointObj = jointsMap.get(jointConfigs[jointConfigs.length - 1].name);
+            if (lastJointObj) {
+                lastJointObj.updateWorldMatrix(true, false);
+                j6Anchor.position.setFromMatrixPosition(lastJointObj.matrixWorld);
+            }
+        }
+
         PubSub.default.pub("robotJointsChanged" as any);
         ctx.view.update();
     });
@@ -197,6 +274,13 @@ export function createRobotDualGizmos(
             ctx.scene.remove(tcpControls.getHelper());
             tcpControls.dispose();
             ctx.scene.remove(tcpAnchor);
+
+            if (j6Controls && j6Anchor) {
+                j6Controls.detach();
+                ctx.scene.remove(j6Controls.getHelper());
+                j6Controls.dispose();
+                ctx.scene.remove(j6Anchor);
+            }
 
             setViewEnabled(true);
             document.removeEventListener("keydown", keyHandler, true);
@@ -227,10 +311,17 @@ export function createRobotDualGizmos(
                     modelContainer.updateMatrixWorld(true);
                     robotArm.notifyJointsChanged();
 
-                    // Move TCP gizmo anchor to follow the robot
+                    // Move gizmo anchors to follow the robot
                     const newTcp = robotArm.getTcpWorldPosition();
                     if (newTcp) {
                         tcpAnchor.position.copy(newTcp);
+                    }
+                    if (j6Anchor && jointConfigs.length >= 2) {
+                        const lastJointObj = jointsMap.get(jointConfigs[jointConfigs.length - 1].name);
+                        if (lastJointObj) {
+                            lastJointObj.updateWorldMatrix(true, false);
+                            j6Anchor.position.setFromMatrixPosition(lastJointObj.matrixWorld);
+                        }
                     }
                 }
                 cleanup();

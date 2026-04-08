@@ -1,0 +1,15 @@
+{
+    "meta": {
+        "version": "1.0",
+        "description": "Sample weld line action",
+        "created": "2026-04-07T00:00:00Z",
+        "robot_type": "arm",
+        "action_type": "weld_line"
+    },
+    "weld": {
+        "start": [-1351.6862723572233, 0.5550823622708236, 0],
+        "end": [-1351.6862723572233, 840.0610529305835, 0],
+        "speed": 50,
+        "steps": 60
+    }
+}

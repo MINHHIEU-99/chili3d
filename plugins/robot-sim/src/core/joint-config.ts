@@ -93,3 +93,23 @@ export interface AnimationState {
     timeline: Timeline | null;
     currentSequence: JSONActionSequence | null;
 }
+
+export interface WeldLineAction {
+    meta: {
+        version: string;
+        description: string;
+        created: string;
+        robot_type: string;
+        action_type: "weld_line";
+    };
+    weld: {
+        /** Start point of the weld line in world coordinates [x, y, z] */
+        start: [number, number, number];
+        /** End point of the weld line in world coordinates [x, y, z] */
+        end: [number, number, number];
+        /** TCP travel speed along the weld line in world units per second */
+        speed: number;
+        /** Number of interpolation steps between start and end (default: 50) */
+        steps?: number;
+    };
+}
