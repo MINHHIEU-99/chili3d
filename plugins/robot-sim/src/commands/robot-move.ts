@@ -186,10 +186,19 @@ export function createRobotDualGizmos(
                 const target = new THREE.Vector3();
                 j6Anchor!.getWorldPosition(target);
 
-                j6Solver.solve(j6Chain, target, (name, angle) => {
+                const result = j6Solver.solve(j6Chain, target, (name, angle) => {
                     robotArm.setJointAngleSilent(name, angle);
                 });
+
                 robotArm.notifyJointsChanged();
+
+                if (result.singular || !result.reachable) {
+                    // Solver already restored joint angles — snap gizmo back
+                    lastJointObj.updateWorldMatrix(true, false);
+                    j6Anchor!.position.setFromMatrixPosition(lastJointObj.matrixWorld);
+                    ctx.view.update();
+                    return;
+                }
 
                 // Sync TCP gizmo anchor after J6 IK
                 const newTcp = robotArm.getTcpWorldPosition();
@@ -242,10 +251,21 @@ export function createRobotDualGizmos(
         const target = new THREE.Vector3();
         tcpAnchor.getWorldPosition(target);
 
-        solver.solve(chain, target, (name, angle) => {
+        const result = solver.solve(chain, target, (name, angle) => {
             robotArm.setJointAngleSilent(name, angle);
         });
+
         robotArm.notifyJointsChanged();
+
+        if (result.singular || !result.reachable) {
+            // Solver already restored joint angles — snap gizmo back
+            const currentTcp = robotArm.getTcpWorldPosition();
+            if (currentTcp) {
+                tcpAnchor.position.copy(currentTcp);
+            }
+            ctx.view.update();
+            return;
+        }
 
         // Sync J6 gizmo anchor after TCP IK
         if (j6Anchor && jointConfigs.length >= 2) {

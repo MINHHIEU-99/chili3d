@@ -73,7 +73,6 @@ export class RobotArm {
         vertexCount: number;
     }[] = [];
     private mergedTotalVertexCount = 0;
-
     constructor(
         private scene: THREE.Scene,
         private modelConfig?: RobotModelConfig,
@@ -106,7 +105,6 @@ export class RobotArm {
             matrices.set(mesh, mesh.matrixWorld.toArray());
         }
         this.onMeshTransformsChanged(matrices);
-        // this.onJointChanged?.();
     }
 
     async loadModelFromUrl(url: string): Promise<void> {

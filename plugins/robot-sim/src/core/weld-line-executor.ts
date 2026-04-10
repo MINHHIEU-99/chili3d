@@ -290,9 +290,20 @@ export class WeldLineExecutor {
         const targetDist = this.progress * this.totalDistance;
         const pos = this.interpolatePosition(targetDist);
 
-        this.solver.solve(this.chain, pos, (name, angle) => {
+        const result = this.solver.solve(this.chain, pos, (name, angle) => {
             this.robotArm!.setJointAngleSilent(name, angle);
         });
+
+        if (result.singular || !result.reachable) {
+            // Singularity or unreachable target — solver already restored joint angles, pause execution
+            this.pause();
+            console.warn(
+                `[WeldLineExecutor] ${result.singular ? "Singularity" : "Unreachable target"} at progress:`,
+                this.progress,
+            );
+            return;
+        }
+
         this.robotArm.notifyJointsChanged();
 
         // Record trajectory point

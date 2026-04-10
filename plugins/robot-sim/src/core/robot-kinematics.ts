@@ -125,3 +125,32 @@ export function computeJacobian(chain: KinematicChain): Float64Array {
 
     return J;
 }
+
+/**
+ * Computes the manipulability measure: sqrt(det(J * J^T)).
+ * A value near zero indicates the robot is at or near a singularity,
+ * meaning it has lost one or more degrees of freedom.
+ */
+export function computeManipulability(chain: KinematicChain): number {
+    const n = chain.joints.length;
+    const J = computeJacobian(chain);
+
+    // Compute J * J^T (3x3)
+    const JJT = new Float64Array(9);
+    for (let r = 0; r < 3; r++) {
+        for (let c = r; c < 3; c++) {
+            let sum = 0;
+            for (let k = 0; k < n; k++) {
+                sum += J[r * n + k] * J[c * n + k];
+            }
+            JJT[r * 3 + c] = sum;
+            JJT[c * 3 + r] = sum;
+        }
+    }
+
+    // Determinant of 3x3
+    const [a, b, c, d, e, f, g, h, i] = JJT;
+    const det = a * (e * i - f * h) - b * (d * i - f * g) + c * (d * h - e * g);
+
+    return Math.sqrt(Math.max(0, det));
+}

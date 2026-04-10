@@ -3,7 +3,7 @@
 
 import * as THREE from "three";
 import type { KinematicChain } from "./robot-kinematics";
-import { computeJacobian, updateChainWorldState } from "./robot-kinematics";
+import { computeJacobian, computeManipulability, updateChainWorldState } from "./robot-kinematics";
 
 export interface IKSolverConfig {
     maxIterations: number;
@@ -13,12 +13,18 @@ export interface IKSolverConfig {
     dampingFactor: number;
     /** Scales delta_q per iteration to prevent overshooting */
     stepScale: number;
+    /** Manipulability threshold below which the configuration is considered singular */
+    singularityThreshold: number;
 }
 
 export interface IKResult {
     converged: boolean;
     iterations: number;
     finalError: number;
+    /** True when the robot is at or near a kinematic singularity */
+    singular: boolean;
+    /** True when the target is within the reachable workspace */
+    reachable: boolean;
 }
 
 const DEFAULT_CONFIG: IKSolverConfig = {
@@ -26,6 +32,7 @@ const DEFAULT_CONFIG: IKSolverConfig = {
     positionThreshold: 0.5,
     dampingFactor: 0.5,
     stepScale: 0.5,
+    singularityThreshold: 10,
 };
 
 const _tcpPos = new THREE.Vector3();
@@ -51,6 +58,11 @@ export class IKSolver {
     /**
      * Runs the IK solver to move the TCP toward the target position.
      *
+     * The solver works in two phases:
+     * 1. Compute tentative joint angles (applying them to compute forward kinematics)
+     * 2. Only commit the result if valid (converged, not singular, reachable)
+     *    — otherwise restore the original joint angles so the robot stays put.
+     *
      * @param chain - The kinematic chain (joints + TCP node)
      * @param targetPosition - Desired TCP position in world space
      * @param applyJointAngle - Callback to apply a joint angle (name, angleDegOrMm)
@@ -61,9 +73,18 @@ export class IKSolver {
         targetPosition: THREE.Vector3,
         applyJointAngle: (name: string, angle: number) => void,
     ): IKResult {
-        const { maxIterations, positionThreshold, stepScale } = this.config;
+        const { maxIterations, positionThreshold, stepScale, singularityThreshold } = this.config;
         let prevError = Infinity;
         this.lambda = this.config.dampingFactor;
+
+        // Save original joint angles so we can restore on failure
+        const n = chain.joints.length;
+        const savedAngles = new Float64Array(n);
+        for (let i = 0; i < n; i++) {
+            savedAngles[i] = chain.joints[i].config.currentAngle;
+        }
+
+        let hitSingularity = false;
 
         for (let iter = 0; iter < maxIterations; iter++) {
             // Update world matrices and joint state
@@ -75,7 +96,20 @@ export class IKSolver {
             const errorMag = _error.length();
 
             if (errorMag < positionThreshold) {
-                return { converged: true, iterations: iter, finalError: errorMag };
+                return {
+                    converged: true,
+                    iterations: iter,
+                    finalError: errorMag,
+                    singular: false,
+                    reachable: true,
+                };
+            }
+
+            // Check for singularity before computing joint updates
+            const manipulability = computeManipulability(chain);
+            if (manipulability < singularityThreshold) {
+                hitSingularity = true;
+                break;
             }
 
             // Adaptive damping
@@ -87,7 +121,6 @@ export class IKSolver {
             prevError = errorMag;
 
             // Compute Jacobian (3xN)
-            const n = chain.joints.length;
             const J = computeJacobian(chain);
 
             // Compute JJT = J * J^T (3x3) + lambda^2 * I
@@ -127,11 +160,28 @@ export class IKSolver {
             }
         }
 
-        // Did not converge within maxIterations
+        // Evaluate final state
         updateChainWorldState(chain);
         chain.tcpNode.getWorldPosition(_tcpPos);
         const finalError = _tcpPos.distanceTo(targetPosition);
-        return { converged: false, iterations: maxIterations, finalError };
+
+        // Determine if the target is reachable: converged or error is acceptably small
+        const reachable = !hitSingularity && finalError < positionThreshold * 10;
+
+        if (hitSingularity || !reachable) {
+            // Restore original joint angles — robot stays stationary
+            for (let i = 0; i < n; i++) {
+                applyJointAngle(chain.joints[i].config.name, savedAngles[i]);
+            }
+        }
+
+        return {
+            converged: false,
+            iterations: maxIterations,
+            finalError,
+            singular: hitSingularity,
+            reachable,
+        };
     }
 
     resetDamping(): void {
