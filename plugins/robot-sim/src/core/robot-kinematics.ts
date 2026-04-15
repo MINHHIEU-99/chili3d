@@ -127,6 +127,46 @@ export function computeJacobian(chain: KinematicChain): Float64Array {
 }
 
 /**
+ * Computes the 6xN full Jacobian (position + orientation) for the kinematic chain.
+ * Returns a Float64Array in row-major order.
+ *
+ * Rows 0-2: position — same as computeJacobian
+ * Rows 3-5: orientation
+ *   - Rotational joints: column = worldAxis
+ *   - Linear joints: column = [0, 0, 0]
+ */
+export function computeFullJacobian(chain: KinematicChain): Float64Array {
+    const n = chain.joints.length;
+    const J = new Float64Array(6 * n);
+
+    chain.tcpNode.getWorldPosition(_tcpPos);
+
+    for (let i = 0; i < n; i++) {
+        const joint = chain.joints[i];
+
+        if (joint.config.type === "rotational") {
+            _diff.subVectors(_tcpPos, joint.worldPosition);
+            _cross.crossVectors(joint.worldAxis, _diff);
+            // Position rows
+            J[0 * n + i] = _cross.x;
+            J[1 * n + i] = _cross.y;
+            J[2 * n + i] = _cross.z;
+            // Orientation rows
+            J[3 * n + i] = joint.worldAxis.x;
+            J[4 * n + i] = joint.worldAxis.y;
+            J[5 * n + i] = joint.worldAxis.z;
+        } else {
+            // Linear: position = worldAxis, orientation = 0
+            J[0 * n + i] = joint.worldAxis.x;
+            J[1 * n + i] = joint.worldAxis.y;
+            J[2 * n + i] = joint.worldAxis.z;
+        }
+    }
+
+    return J;
+}
+
+/**
  * Computes the manipulability measure: sqrt(det(J * J^T)).
  * A value near zero indicates the robot is at or near a singularity,
  * meaning it has lost one or more degrees of freedom.

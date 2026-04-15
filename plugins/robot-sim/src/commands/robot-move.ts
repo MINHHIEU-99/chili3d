@@ -122,6 +122,13 @@ export function createRobotDualGizmos(
     if (tcpPos) {
         tcpAnchor.position.copy(tcpPos);
     }
+    // Sync initial TCP orientation from the kinematic chain
+    if (chain) {
+        chain.tcpNode.updateWorldMatrix(true, false);
+        const tcpQuat = new THREE.Quaternion();
+        chain.tcpNode.getWorldQuaternion(tcpQuat);
+        tcpAnchor.quaternion.copy(tcpQuat);
+    }
     ctx.scene.add(tcpAnchor);
 
     const tcpControls = new TransformControls(ctx.camera, ctx.dom);
@@ -129,6 +136,9 @@ export function createRobotDualGizmos(
     tcpControls.setSize(0.8);
     tcpControls.attach(tcpAnchor);
     ctx.scene.add(tcpControls.getHelper());
+
+    /** Current gizmo mode for TCP and J6 */
+    let ikGizmoMode: "translate" | "rotate" = "translate";
 
     // Disable camera rotation while dragging any gizmo
     const setViewEnabled = (enabled: boolean) => {
@@ -177,6 +187,9 @@ export function createRobotDualGizmos(
                     lastJointObj.updateWorldMatrix(true, false);
                     const currentJ6 = new THREE.Vector3().setFromMatrixPosition(lastJointObj.matrixWorld);
                     j6Anchor!.position.copy(currentJ6);
+                    const j6Quat = new THREE.Quaternion();
+                    lastJointObj.getWorldQuaternion(j6Quat);
+                    j6Anchor!.quaternion.copy(j6Quat);
                     j6Solver.resetDamping();
                 }
             });
@@ -186,9 +199,16 @@ export function createRobotDualGizmos(
                 const target = new THREE.Vector3();
                 j6Anchor!.getWorldPosition(target);
 
-                const result = j6Solver.solve(j6Chain, target, (name, angle) => {
-                    robotArm.setJointAngleSilent(name, angle);
-                });
+                const targetOri = ikGizmoMode === "rotate" ? j6Anchor!.quaternion.clone() : undefined;
+
+                const result = j6Solver.solve(
+                    j6Chain,
+                    target,
+                    (name, angle) => {
+                        robotArm.setJointAngleSilent(name, angle);
+                    },
+                    targetOri,
+                );
 
                 robotArm.notifyJointsChanged();
 
@@ -196,6 +216,9 @@ export function createRobotDualGizmos(
                     // Solver already restored joint angles — snap gizmo back
                     lastJointObj.updateWorldMatrix(true, false);
                     j6Anchor!.position.setFromMatrixPosition(lastJointObj.matrixWorld);
+                    const snapQuat = new THREE.Quaternion();
+                    lastJointObj.getWorldQuaternion(snapQuat);
+                    j6Anchor!.quaternion.copy(snapQuat);
                     ctx.view.update();
                     return;
                 }
@@ -204,6 +227,12 @@ export function createRobotDualGizmos(
                 const newTcp = robotArm.getTcpWorldPosition();
                 if (newTcp) {
                     tcpAnchor.position.copy(newTcp);
+                }
+                if (chain) {
+                    chain.tcpNode.updateWorldMatrix(true, false);
+                    const tcpQuat = new THREE.Quaternion();
+                    chain.tcpNode.getWorldQuaternion(tcpQuat);
+                    tcpAnchor.quaternion.copy(tcpQuat);
                 }
 
                 PubSub.default.pub("robotJointsChanged" as any);
@@ -221,6 +250,12 @@ export function createRobotDualGizmos(
             const currentTcp = robotArm.getTcpWorldPosition();
             if (currentTcp) {
                 tcpAnchor.position.copy(currentTcp);
+            }
+            if (chain) {
+                chain.tcpNode.updateWorldMatrix(true, false);
+                const tcpQuat = new THREE.Quaternion();
+                chain.tcpNode.getWorldQuaternion(tcpQuat);
+                tcpAnchor.quaternion.copy(tcpQuat);
             }
             solver.resetDamping();
         }
@@ -251,9 +286,16 @@ export function createRobotDualGizmos(
         const target = new THREE.Vector3();
         tcpAnchor.getWorldPosition(target);
 
-        const result = solver.solve(chain, target, (name, angle) => {
-            robotArm.setJointAngleSilent(name, angle);
-        });
+        const targetOri = ikGizmoMode === "rotate" ? tcpAnchor.quaternion.clone() : undefined;
+
+        const result = solver.solve(
+            chain,
+            target,
+            (name, angle) => {
+                robotArm.setJointAngleSilent(name, angle);
+            },
+            targetOri,
+        );
 
         robotArm.notifyJointsChanged();
 
@@ -263,6 +305,10 @@ export function createRobotDualGizmos(
             if (currentTcp) {
                 tcpAnchor.position.copy(currentTcp);
             }
+            chain.tcpNode.updateWorldMatrix(true, false);
+            const snapQuat = new THREE.Quaternion();
+            chain.tcpNode.getWorldQuaternion(snapQuat);
+            tcpAnchor.quaternion.copy(snapQuat);
             ctx.view.update();
             return;
         }
@@ -273,6 +319,11 @@ export function createRobotDualGizmos(
             if (lastJointObj) {
                 lastJointObj.updateWorldMatrix(true, false);
                 j6Anchor.position.setFromMatrixPosition(lastJointObj.matrixWorld);
+                if (j6Controls?.getMode() === "rotate") {
+                    const j6Quat = new THREE.Quaternion();
+                    lastJointObj.getWorldQuaternion(j6Quat);
+                    j6Anchor.quaternion.copy(j6Quat);
+                }
             }
         }
 
@@ -308,6 +359,42 @@ export function createRobotDualGizmos(
         };
 
         const keyHandler = (event: KeyboardEvent) => {
+            // T/R toggle gizmo mode for TCP and J6
+            if (event.key === "t" || event.key === "T") {
+                ikGizmoMode = "translate";
+                tcpControls.setMode("translate");
+                if (j6Controls) j6Controls.setMode("translate");
+                ctx.view.update();
+                return;
+            }
+            if (event.key === "r" || event.key === "R") {
+                // Sync quaternions from current world state BEFORE switching mode,
+                // so that the synchronous "change" events fired by setMode() don't
+                // run 6-DOF IK with a stale quaternion.
+                if (chain) {
+                    chain.tcpNode.updateWorldMatrix(true, false);
+                    const tcpQuat = new THREE.Quaternion();
+                    chain.tcpNode.getWorldQuaternion(tcpQuat);
+                    tcpAnchor.quaternion.copy(tcpQuat);
+                }
+                if (j6Anchor && jointConfigs.length >= 2) {
+                    const lastJointObj = jointsMap.get(jointConfigs[jointConfigs.length - 1].name);
+                    if (lastJointObj) {
+                        lastJointObj.updateWorldMatrix(true, false);
+                        const j6Quat = new THREE.Quaternion();
+                        lastJointObj.getWorldQuaternion(j6Quat);
+                        j6Anchor.quaternion.copy(j6Quat);
+                    }
+                }
+                // setMode() fires synchronous "change" events — set ikGizmoMode
+                // AFTER so those handlers still use 3-DOF solving (no orientation).
+                tcpControls.setMode("rotate");
+                if (j6Controls) j6Controls.setMode("rotate");
+                ikGizmoMode = "rotate";
+                ctx.view.update();
+                return;
+            }
+
             if (event.key === "Enter") {
                 event.stopPropagation();
                 event.preventDefault();
